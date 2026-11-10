@@ -30,7 +30,8 @@ function start(): void {
   child.stdout!.on('data', (chunk: Buffer) =>
     reader.push(chunk, (packet) => {
       if (packet.kind === 'pcm') {
-        analyzer?.push(packet.samples, (frame) => post({ type: 'frame', frame }))
+        // Frames carry the wall-clock time they were analysed, so consumers can measure delivery latency.
+        analyzer?.push(packet.samples, (frame) => post({ type: 'frame', frame: { ...frame, timestamp: Date.now() } }))
         return
       }
       const status = parseHelperStatus(packet.message)

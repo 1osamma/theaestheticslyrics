@@ -1,7 +1,12 @@
-import type { AmbientPalette } from '@shared/lighting'
+import type { AudioAnalysisFrame } from '@shared/audio-frame'
+import type { AmbientPalette, LightFrame, LightingConfig } from '@shared/lighting'
+import { LightingEngine } from '@shared/lighting-engine'
 import type { Artwork, LyricsStatus, PlayerConfig, TimedLyrics, TrackInfo } from '@shared/types'
-import { albumDrive } from '../ambient/drive'
-import { createAmbientLayer } from '../ambient/ambient-layer'
+import { copyLight, sameLight } from '../lighting/frame-utils'
+import { createLightLayer } from '../lighting/light-layer'
+import { edgeWeights } from '../lighting/edge-weights'
+import type { PerfCounters } from '../lighting/perf'
+import { frameDue } from '../stage/frame-gate'
 import type { LyricsModel } from '../stage/model'
 import { setStyle } from '../stage/style-cache'
 import type { FrameInfo, StageStyle } from '../stage/styles/types'
@@ -49,19 +54,25 @@ export interface PlayerView extends StageStyle {
   setWatchOnly(watchOnly: boolean): void
   /** Mouse moved over the screen. */
   poke(now: number): void
+  /** LUMINA Lighting settings for the background (`mode: 'off'` when fullscreen lighting is off). */
+  setLighting(config: LightingConfig, systemReducedMotion: boolean): void
+  /** One live audio analysis frame. */
+  pushAudio(frame: AudioAnalysisFrame): void
+  setPerf(perf: PerfCounters): void
 }
 
+
 /**
- * The LUMINA full-screen player: album-art ambient light, the cover, track info, progress
- * and line-synced lyrics with word fill. Drawn by the stage loop like any lyric style.
+ * The LUMINA full-screen player: hybrid album-art lighting, the cover, track info, progress
+ * and line-synced lyrics with word fill. Drawn by the stage loop like any lyric style. Lighting
+ * runs at its own frame rate and never touches lyric layout.
  */
 export function createPlayerView(): PlayerView {
-  const ambient = createAmbientLayer()
+  const light = createLightLayer(false, (m) => console.info(m))
   const lines = createLyricLines()
   const chrome = new ChromeFader()
 
   const root = el('div', 'lm-player')
-  const ambientHost = el('div', 'lm-ambient-host')
   const grain = el('div', 'lm-grain')
   const vignette = el('div', 'lm-vignette')
 
@@ -131,6 +142,17 @@ export function createPlayerView(): PlayerView {
   let shownMinute = -1
   let shownElapsed = ''
   let shownRemaining = ''
+  let lighting: LightingConfig | null = null
+  let engine: LightingEngine | null = null
+  let pendingColors: string[] | null = null
+  let lastAudio: AudioAnalysisFrame | null = null
+  let lastLightAt = Number.NEGATIVE_INFINITY
+  let drawn: LightFrame | null = null
+  let focus: [number, number] = [0.27, 0.45]
+  let focusFor = ''
+  /** Snapshot settling runs the engine on its own clock, always moving forward. */
+  let settleClock = 0
+  let perf: PerfCounters | null = null
 
   function showFallback(): void {
     for (const img of slots) img.classList.remove('is-shown')
@@ -202,6 +224,46 @@ export function createPlayerView(): PlayerView {
     })
   }
 
+  /** Bloom centre: behind the album art, re-measured when the layout size changes. */
+  function measureFocus(width: number, height: number): void {
+    const key = `${width}x${height}`
+    if (key === focusFor) return
+    focusFor = key
+    const r = art.getBoundingClientRect()
+    if (r.width > 0 && width > 0 && height > 0) focus = [(r.left + r.width / 2) / width, (r.top + r.height / 2) / height]
+  }
+
+  function drawLight(wallMs: number, width: number, height: number, settle: boolean): void {
+    if (!engine || !lighting) return
+    let frame: LightFrame
+    if (settle) {
+      // Snapshots: let the light settle on the latest audio as if it had been playing for a while.
+      for (let i = 0; i < 150; i++) {
+        settleClock += 16
+        if (lastAudio) engine.pushAudio(lastAudio, settleClock)
+        engine.sample(settleClock)
+      }
+      frame = engine.sample(settleClock)
+    } else {
+      if (!frameDue(lastLightAt, wallMs, lighting.fps)) return
+      lastLightAt = wallMs
+      frame = engine.sample(wallMs)
+    }
+    if (!settle && sameLight(drawn, frame)) return
+    measureFocus(width, height)
+    light.render(frame, {
+      width,
+      height,
+      overlay: false,
+      focus,
+      edges: lighting.playerEdgeGlow ? edgeWeights(lighting.edges, 0.6) : [0, 0, 0, 0],
+      edgeShape: [lighting.edgeThickness, lighting.edgeSoftness, lighting.edgeSpread],
+      wallMs
+    })
+    drawn = copyLight(frame)
+    perf?.light(wallMs)
+  }
+
   function updateMessage(): void {
     const text = hasLyrics ? '' : (STATUS_TEXT[status] ?? '')
     message.textContent = text
@@ -210,8 +272,9 @@ export function createPlayerView(): PlayerView {
 
   return {
     mount(parent) {
-      root.append(ambientHost, vignette, grain, top, clock, stage, idle)
-      ambient.mount(ambientHost)
+      root.append(vignette, grain, top, clock, stage, idle)
+      light.mount(root)
+      root.prepend(root.lastElementChild!) // the light sits underneath everything
       lines.mount(main)
       main.append(message)
       parent.append(root)
@@ -243,6 +306,7 @@ export function createPlayerView(): PlayerView {
         shownRemaining = ''
         syncArt()
         if (next) replayRise()
+        focusFor = '' // the layout may have shifted
       }
       badge.textContent = lyrics ? (lyrics.wordTiming === 'native' ? 'Word-synced' : 'Line-synced') : ''
       badge.hidden = !lyrics
@@ -262,7 +326,8 @@ export function createPlayerView(): PlayerView {
     },
 
     setAmbient(next) {
-      ambient.setColors(next.colors)
+      if (engine) engine.setPalette(next.colors, performance.now())
+      else pendingColors = next.colors
       const s = root.style
       const accents = ['--lm-accent', '--lm-accent-2', '--lm-accent-3', '--lm-accent-4']
       accents.forEach((name, i) => s.setProperty(name, next.colors[i % next.colors.length] ?? '#b98cff'))
@@ -271,9 +336,38 @@ export function createPlayerView(): PlayerView {
     setConfig(next, systemReducedMotion) {
       config = next
       reducedMotion = next.reducedMotion || systemReducedMotion
-      ambient.setEnabled(next.ambient)
-      ambient.setBrightness(next.brightness)
       applyMotion()
+    },
+
+    setLighting(next, systemReducedMotion) {
+      lighting = { ...next, reducedMotion: next.reducedMotion || systemReducedMotion }
+      if (!engine) {
+        engine = new LightingEngine(lighting)
+        if (pendingColors) engine.setPalette(pendingColors, performance.now(), true)
+        pendingColors = null
+      } else {
+        engine.setConfig(lighting)
+      }
+      light.setPreferCss(!next.gpu)
+      perf?.setRenderer(light.kind)
+      drawn = null
+    },
+
+    pushAudio(frame) {
+      lastAudio = frame
+      engine?.pushAudio(frame, performance.now())
+      perf?.audioLatency(Date.now() - frame.timestamp)
+    },
+
+    setPerf(next) {
+      perf = next
+      perf.setRenderer(light.kind)
+    },
+
+    wantsFps() {
+      // Moving light needs its own rate; still light (off, static) leaves the loop at its idle pace.
+      if (!lighting || lighting.mode === 'off' || lighting.mode === 'static') return 0
+      return lighting.fps
     },
 
     setPlaying(next) {
@@ -305,12 +399,7 @@ export function createPlayerView(): PlayerView {
         showFallback()
       }
 
-      ambient.frame(
-        wallMs,
-        albumDrive({ playing, animation: config?.animation ?? 'medium', still: reducedMotion || !(config?.gpu ?? true) }),
-        { width, height },
-        settle
-      )
+      drawLight(wallMs, width, height, !!settle)
 
       const chromeOn = watchOnly && chrome.visible(wallMs)
       root.classList.toggle('is-chrome', chromeOn)
@@ -350,7 +439,7 @@ export function createPlayerView(): PlayerView {
     destroy() {
       clearArtWait()
       artToken++
-      ambient.destroy()
+      light.destroy()
       lines.destroy()
       document.body.classList.remove('lm-cursor')
       root.remove()

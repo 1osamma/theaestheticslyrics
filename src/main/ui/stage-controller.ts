@@ -1,7 +1,8 @@
 import { writeFileSync } from 'node:fs'
 import { BrowserWindow, app, ipcMain, powerMonitor, screen, type Display, type IpcMainEvent } from 'electron'
 import { IPC, type DismissRequest, type StageSessionInfo, type StageState } from '@shared/ipc'
-import type { AmbientPalette } from '@shared/lighting'
+import type { AudioAnalysisFrame } from '@shared/audio-frame'
+import type { AmbientPalette, LightingConfig } from '@shared/lighting'
 import type {
   Artwork,
   FrameRateCap,
@@ -39,6 +40,7 @@ export interface StageContent {
   layout: FullscreenLayout
   player: PlayerConfig
   frameRateCap: FrameRateCap
+  lighting: LightingConfig
 }
 
 export interface StageControllerDeps {
@@ -110,6 +112,13 @@ export class StageController {
     this.artwork = artwork
     const lock = this.lockWin
     if (lock && !lock.win.isDestroyed()) lock.win.webContents.send(IPC.stageArtwork, artwork)
+  }
+
+  /** Live audio for the player lighting: only the visible lyrics screen gets it, never the lyrics overlay. */
+  sendAudio(frame: AudioAnalysisFrame): void {
+    const lock = this.lockWin
+    if (!this.session?.isShown || !lock || lock.win.isDestroyed()) return
+    lock.win.webContents.send(IPC.lightingAudio, frame)
   }
 
   /** Display or mode changed in settings. */
@@ -230,6 +239,19 @@ export class StageController {
       `for (let i = 0; i < 6; i++) window.dispatchEvent(new MouseEvent('mousemove', { screenX: 200 + i * 12, screenY: 200 + i * 8 }))`
     )
     return true
+  }
+
+  /** Debug: resets the page's frame counters (window.__luminaPerf, kept by the page itself). */
+  async perfReset(): Promise<void> {
+    const win = this.lockWin?.win
+    if (win && !win.isDestroyed()) await win.webContents.executeJavaScript('window.__luminaPerf?.reset()').catch(() => undefined)
+  }
+
+  /** Debug: reads the page's frame counters. */
+  async perfRead(): Promise<unknown> {
+    const win = this.lockWin?.win
+    if (!win || win.isDestroyed() || !win.isVisible()) return null
+    return win.webContents.executeJavaScript('window.__luminaPerf?.read() ?? null').catch(() => null)
   }
 
   /** Debug/E2E helper: saves what the visible stage window shows. */
@@ -418,7 +440,8 @@ export class StageController {
         mode: sw.kind === 'lock' ? 'lock' : 'always',
         layout: c.layout,
         player: c.player,
-        frameRateCap: c.frameRateCap
+        frameRateCap: c.frameRateCap,
+        lighting: c.lighting
       }
     }
     sw.win.webContents.send(IPC.stageState, state)

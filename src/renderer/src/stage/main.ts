@@ -4,6 +4,7 @@ import '../css/player.css'
 import { DEFAULT_PALETTE } from '@shared/palette-defaults'
 import type { StageState } from '@shared/ipc'
 import type { Artwork, FrameRateCap, Palette, ShowOn, StyleId } from '@shared/types'
+import { installPerf } from '../lighting/perf'
 import { createPlayerView, type PlayerView } from '../player/player-view'
 import { SongClock } from './clock'
 import { VSYNC_GATE_MAX_MS, frameDue, targetFps } from './frame-gate'
@@ -34,6 +35,7 @@ let snapshotMode = false
 let loopRunning = false
 let pendingState: StageState | null = null
 const systemReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+const perf = installPerf('stage')
 
 // Text is measured on a canvas, so the bundled font must be ready before the first layout.
 const fontsReady = Promise.all([
@@ -88,6 +90,7 @@ function applyState(state: StageState): void {
     view.setLyrics(model)
     player?.setArtwork(latestArtwork)
     player?.setWatchOnly(watchOnly)
+    player?.setPerf(perf)
   } else if (lyricsChanged) {
     view.setLyrics(model)
   }
@@ -95,6 +98,7 @@ function applyState(state: StageState): void {
   view.setPalette(palette)
   if (player) {
     player.setConfig(state.config.player, systemReducedMotion.matches)
+    player.setLighting(state.config.lighting, systemReducedMotion.matches)
     player.setAmbient(state.ambient)
     player.setTrack(state.track, state.lyricsStatus, state.lyrics)
     player.setPlaying(clock.playing)
@@ -120,7 +124,11 @@ function loop(frameAt: number): void {
   const started = performance.now()
   const songMs = clock.now(started, Date.now())
   const busy = render(songMs, started)
-  const fps = targetFps(mode, busy, frameCap)
+  perf.frame(frameAt, performance.now() - started)
+  let fps = targetFps(mode, busy, frameCap)
+  // Moving light keeps its own rate even while the lyrics rest (still within the frame-rate limit).
+  const wanted = view?.wantsFps?.() ?? 0
+  if (wanted > fps) fps = frameCap > 0 ? Math.min(wanted, frameCap) : wanted
   if (1000 / fps <= VSYNC_GATE_MAX_MS) {
     // Full rate, or a frame-rate limit: draw on display refreshes, skipping the ones that come too soon.
     const gate = (at: number): void => {
@@ -153,8 +161,12 @@ document.addEventListener('visibilitychange', () => {
 
 // Windows' animation-effects switch calms the player down without a restart.
 systemReducedMotion.addEventListener('change', () => {
-  if (player && lastState) player.setConfig(lastState.config.player, systemReducedMotion.matches)
+  if (!player || !lastState) return
+  player.setConfig(lastState.config.player, systemReducedMotion.matches)
+  player.setLighting(lastState.config.lighting, systemReducedMotion.matches)
 })
+
+api.onAudio((frame) => player?.pushAudio(frame))
 
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()))
 

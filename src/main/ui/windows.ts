@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { app, type BrowserWindow, type WebPreferences } from 'electron'
 
-export type Page = 'stage' | 'colors'
+export type Page = 'stage' | 'colors' | 'edge' | 'lighting'
 
 export const preloadPath = (): string => join(__dirname, '../preload/index.js')
 

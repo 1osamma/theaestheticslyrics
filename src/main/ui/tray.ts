@@ -1,8 +1,9 @@
 import { Menu, Tray, nativeImage, type MenuItemConstructorOptions, type NativeImage } from 'electron'
 import { STYLE_IDS, STYLE_LABELS, type ColorRole, type LyricsStatus, type Palette, type ShowOn, type StyleId, type TrackInfo } from '@shared/types'
+import type { AudioStatus } from '@shared/audio-frame'
+import { LIGHTING_MODES, LIGHTING_MODE_LABELS, type LightingSettings } from '@shared/lighting'
 import {
   ANIMATION_CHOICES,
-  BRIGHTNESS_CHOICES,
   FRAME_RATE_CHOICES,
   LYRIC_SCALE_CHOICES,
   type IdleMinutes,
@@ -19,13 +20,16 @@ export interface TrayModel {
   displays: { id: number; label: string }[]
   canLaunchAtLogin: boolean
   hotkeyOk: boolean
+  lighting: {
+    paused: boolean
+    audio: AudioStatus
+    edgeShowing: number
+    edgeHeldBy: string | null
+  }
 }
 
 /** Settings the Player submenu and Full-Screen View change. */
-export type PlayerSettings = Pick<
-  Settings,
-  'layout' | 'ambient' | 'ambientBrightness' | 'animation' | 'reducedMotion' | 'lyricScale' | 'frameRateCap'
->
+export type PlayerSettings = Pick<Settings, 'layout' | 'animation' | 'reducedMotion' | 'lyricScale' | 'frameRateCap'>
 
 export interface TrayActions {
   setStyle(style: StyleId): void
@@ -43,6 +47,9 @@ export interface TrayActions {
   openLyricsFolder(): void
   setLaunchAtLogin(on: boolean): void
   setPlayer(patch: Partial<PlayerSettings>): void
+  setLighting(patch: Partial<LightingSettings>): void
+  setLightingPaused(paused: boolean): void
+  openLightingSettings(): void
   quit(): void
 }
 
@@ -55,7 +62,22 @@ const OFFSETS: { ms: number; label: string }[] = [
   { ms: 750, label: 'Words 0.75 s Later (Bluetooth)' }
 ]
 
-const BRIGHTNESS_LABELS = ['Low', 'Medium', 'High']
+const LIGHT_BRIGHTNESS: { value: number; label: string }[] = [
+  { value: 0.2, label: '20%' },
+  { value: 0.3, label: '30%' },
+  { value: 0.45, label: '45% (Default)' },
+  { value: 0.65, label: '65%' },
+  { value: 0.85, label: '85%' }
+]
+
+/** What the tray says audio capture is doing. Never claims Spotify-only capture in system mode. */
+export function audioLine(audio: AudioStatus): string | null {
+  if (audio.state === 'stopped') return null
+  if (audio.state === 'starting') return 'Audio: starting…'
+  if (audio.state === 'error') return 'Audio: unavailable, retrying'
+  if (audio.state === 'waiting') return `Audio: ${audio.message || 'waiting'}`
+  return audio.mode === 'process' ? 'Audio: Spotify only' : 'Audio: all system audio (not Spotify only)'
+}
 const ANIMATION_LABELS: Record<Settings['animation'], string> = { low: 'Subtle', medium: 'Standard', high: 'Expressive' }
 const LYRIC_SCALE_LABELS = ['Small', 'Default', 'Large', 'Extra Large']
 const frameRateLabel = (fps: number): string => (fps === 0 ? 'Match Display' : `${fps} FPS`)
@@ -143,6 +165,63 @@ export class TrayMenu {
     return img
   }
 
+  /** The LUMINA Lighting submenu. */
+  private lightingMenu(m: TrayModel): MenuItemConstructorOptions {
+    const s = m.settings
+    const a = this.actions
+    const l = m.lighting
+    const radio = (label: string, checked: boolean, click: () => void): MenuItemConstructorOptions => ({ label, type: 'radio', checked, click })
+    const status = audioLine(l.audio)
+    const edgeLine = s.edgeLighting
+      ? l.edgeShowing > 0
+        ? `Edge lighting on ${l.edgeShowing} display${l.edgeShowing > 1 ? 's' : ''}`
+        : `Edge lighting held: ${l.edgeHeldBy ?? 'starting'}`
+      : null
+    return {
+      label: 'LUMINA Lighting',
+      submenu: [
+        ...(status ? [{ label: status, enabled: false }] : []),
+        ...(edgeLine ? [{ label: menuText(edgeLine, 60), enabled: false }] : []),
+        {
+          label: 'Enable Desktop Lighting',
+          type: 'checkbox',
+          checked: s.edgeLighting,
+          click: (item) => a.setLighting({ edgeLighting: item.checked })
+        },
+        {
+          label: 'Fullscreen Player Lighting',
+          type: 'checkbox',
+          checked: s.fullscreenLighting,
+          click: (item) => a.setLighting({ fullscreenLighting: item.checked })
+        },
+        { label: 'Lighting Mode', submenu: LIGHTING_MODES.map((mode) => radio(LIGHTING_MODE_LABELS[mode], s.lightingMode === mode, () => a.setLighting({ lightingMode: mode }))) },
+        {
+          label: 'Brightness',
+          submenu: LIGHT_BRIGHTNESS.map((b) =>
+            radio(b.label, Math.abs(s.lightingBrightness - b.value) < 0.001, () => a.setLighting({ lightingBrightness: b.value }))
+          )
+        },
+        {
+          label: 'Select Monitor',
+          submenu: [
+            radio('Primary Display', s.edgeDisplays === 'primary', () => a.setLighting({ edgeDisplays: 'primary' })),
+            radio('All Displays', s.edgeDisplays === 'all', () => a.setLighting({ edgeDisplays: 'all' })),
+            ...m.displays.map((d) => radio(menuText(d.label), s.edgeDisplays === d.id, () => a.setLighting({ edgeDisplays: d.id })))
+          ]
+        },
+        { type: 'separator' },
+        {
+          // Emergency off: hides every edge window and stops capture at once, until resumed.
+          label: 'Pause Lighting',
+          type: 'checkbox',
+          checked: l.paused,
+          click: (item) => a.setLightingPaused(item.checked)
+        },
+        { label: 'Lighting Settings…', click: () => a.openLightingSettings() }
+      ]
+    }
+  }
+
   private rebuild(): void {
     const m = this.model
     if (!m) return
@@ -180,19 +259,6 @@ export class TrayMenu {
       {
         label: 'Player',
         submenu: [
-          {
-            label: 'Ambient Lighting',
-            type: 'checkbox',
-            checked: s.ambient,
-            click: (item) => a.setPlayer({ ambient: item.checked })
-          },
-          {
-            label: 'Brightness',
-            enabled: s.ambient,
-            submenu: BRIGHTNESS_CHOICES.map((v, i) =>
-              radio(BRIGHTNESS_LABELS[i] ?? String(v), s.ambientBrightness === v, () => a.setPlayer({ ambientBrightness: v }))
-            )
-          },
           {
             label: 'Animation',
             submenu: ANIMATION_CHOICES.map((v) =>
@@ -247,6 +313,7 @@ export class TrayMenu {
         checked: s.wordLevel,
         click: (item) => a.setWordLevel(item.checked)
       },
+      this.lightingMenu(m),
       {
         label: 'Frame Rate Limit',
         submenu: FRAME_RATE_CHOICES.map((v) =>

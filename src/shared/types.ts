@@ -79,10 +79,6 @@ export type FrameRateCap = 0 | 30 | 60 | 120
 
 /** How the LUMINA player looks. Only settings that work today live here. */
 export interface PlayerConfig {
-  /** Album-art ambient lighting behind the player. */
-  ambient: boolean
-  /** Ambient light strength, 0–1. */
-  brightness: number
   animation: AnimationIntensity
   /** Freezes ambient drift, lyric scrolling, lift and glow (also follows Windows' own setting). */
   reducedMotion: boolean

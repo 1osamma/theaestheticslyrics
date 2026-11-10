@@ -1,8 +1,8 @@
 import type { AudioAnalysisFrame } from '@shared/audio-frame'
+import type { AudioSource } from '@shared/lighting'
 import type { HelperStatus } from './packets'
 
-/** Which audio to capture: Spotify only when possible (`auto`), Spotify only always, or everything. */
-export type AudioSource = 'auto' | 'spotify' | 'system'
+export type { AudioSource }
 
 export interface WorkerData {
   helperPath: string

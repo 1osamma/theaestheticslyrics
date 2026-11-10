@@ -76,9 +76,14 @@ function startApp(): void {
         openLockAfterMs: argNumber('open-lock-after'),
         returnAfterMs: argNumber('return-after'),
         colorsCaptureFile: argValue('capture-colors'),
-        quitAfterMs: argNumber('quit-after')
+        quitAfterMs: argNumber('quit-after'),
+        lightingCaptureFile: argValue('capture-lighting'),
+        edgeProbeAfterMs: argNumber('edge-probe-after'),
+        perfAfterMs: argNumber('perf-after'),
+        perfWindowMs: argNumber('perf-window'),
+        perfFile: argValue('perf-file')
       },
-      { showLyricsOnLaunch: openedByUser }
+      { showLyricsOnLaunch: openedByUser, autostart: process.argv.includes('--autostart') }
     )
     try {
       await controller.start()

@@ -1,4 +1,5 @@
-import type { AmbientPalette } from './lighting'
+import type { AudioAnalysisFrame, AudioStatus } from './audio-frame'
+import type { AmbientPalette, LightingConfig, LightingSettings } from './lighting'
 import type {
   Artwork,
   ColorRole,
@@ -22,6 +23,12 @@ export const IPC = {
   stageSession: 'stage:session',
   stageSnapshot: 'stage:snapshot',
   stageSnapshotDone: 'stage:snapshot-done',
+  lightingAudio: 'lighting:audio',
+  edgeState: 'edge:state',
+  lightingGet: 'lighting:get',
+  lightingSet: 'lighting:set',
+  lightingState: 'lighting:state',
+  lightingPause: 'lighting:pause',
   colorsGet: 'colors:get',
   colorsSet: 'colors:set',
   colorsAutoSync: 'colors:auto-sync',
@@ -38,6 +45,8 @@ export interface StageConfig {
   layout: FullscreenLayout
   player: PlayerConfig
   frameRateCap: FrameRateCap
+  /** Player lighting; `mode` is 'off' when fullscreen lighting is turned off. */
+  lighting: LightingConfig
 }
 
 /** Everything the stage needs besides the moving playback clock. */
@@ -71,6 +80,25 @@ export interface StageSessionInfo {
   watchOnly: boolean
 }
 
+/** What a desktop edge-lighting window draws. */
+export interface EdgeState {
+  lighting: LightingConfig
+  ambient: AmbientPalette
+}
+
+/** The LUMINA Lighting settings window. */
+export interface LightingPanelState {
+  settings: LightingSettings
+  displays: { id: number; label: string }[]
+  audio: AudioStatus
+  /** Edge lighting windows currently showing. */
+  edgeShowing: number
+  /** Why edge lighting is not showing although enabled, or null. */
+  edgeHeldBy: string | null
+  paused: boolean
+  gpu: boolean
+}
+
 export interface ColorsState {
   autoSync: boolean
   colors: Record<ColorRole, string>
@@ -85,6 +113,8 @@ export interface StageApi {
   onArtwork(cb: (artwork: Artwork | null) => void): () => void
   onSnapshot(cb: (req: SnapshotRequest) => void): () => void
   onSession(cb: (info: StageSessionInfo) => void): () => void
+  /** Live audio analysis for the player lighting (~60 Hz while it is needed). */
+  onAudio(cb: (frame: AudioAnalysisFrame) => void): () => void
   snapshotDone(id: number): void
   /** Input on the lyrics screen; the main process decides whether it closes the screen. */
   dismiss(request: DismissRequest): void
@@ -98,7 +128,22 @@ export interface ColorsApi {
   onState(cb: (state: ColorsState) => void): () => void
 }
 
+export interface EdgeApi {
+  onState(cb: (state: EdgeState) => void): () => void
+  onAudio(cb: (frame: AudioAnalysisFrame) => void): () => void
+}
+
+export interface LightingApi {
+  get(): Promise<LightingPanelState>
+  /** Only lighting keys are accepted; the main process validates every value. */
+  set(patch: Partial<LightingSettings>): void
+  setPaused(paused: boolean): void
+  onState(cb: (state: LightingPanelState) => void): () => void
+}
+
 export interface LyricsAppApi {
   stage: StageApi
   colors: ColorsApi
+  edge: EdgeApi
+  lighting: LightingApi
 }

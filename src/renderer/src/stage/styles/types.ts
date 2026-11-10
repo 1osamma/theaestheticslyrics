@@ -26,6 +26,8 @@ export interface StageStyle {
    * false when only slow ambient motion is left, so the stage can save power.
    */
   frame(frame: FrameInfo): boolean
+  /** A frame rate this view needs regardless of `frame`'s result (e.g. moving light); 0 for none. */
+  wantsFps?(): number
   /** Resolves once async assets (icons, fonts) are loaded; snapshot mode waits for it. */
   ready?(): Promise<void>
   destroy(): void

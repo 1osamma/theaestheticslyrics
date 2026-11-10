@@ -69,11 +69,10 @@ describe('sanitizeSettings', () => {
 })
 
 describe('LUMINA player settings', () => {
-  it('opens the LUMINA player with ambient light by default, at the display refresh rate', () => {
+  it('opens the LUMINA player by default, at the display refresh rate', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
+      version: 2,
       layout: 'player',
-      ambient: true,
-      ambientBrightness: 0.7,
       animation: 'medium',
       reducedMotion: false,
       lyricScale: 1,
@@ -81,7 +80,7 @@ describe('LUMINA player settings', () => {
     })
   })
 
-  it('loads a settings file from before LUMINA unchanged, adding only the new defaults', () => {
+  it('loads a settings file from before LUMINA, keeping every value and adding the new defaults', () => {
     const old = {
       version: 1,
       style: 'visual',
@@ -98,43 +97,27 @@ describe('LUMINA player settings', () => {
       wordLevel: false
     }
     const s = sanitizeSettings(old)
-    expect(s).toMatchObject(old)
+    const { version: _version, ...values } = old
+    expect(s).toMatchObject(values)
+    expect(s.version).toBe(2)
     expect(s.layout).toBe(DEFAULT_SETTINGS.layout)
-    expect(s.frameRateCap).toBe(DEFAULT_SETTINGS.frameRateCap)
+    expect(s.lightingMode).toBe('hybrid')
+    expect(s.edgeLighting).toBe(false)
   })
 
   it('keeps valid choices and repairs invalid ones field by field', () => {
     const ok = sanitizeSettings({
+      version: 2,
       layout: 'lyrics',
-      ambient: false,
-      ambientBrightness: 1,
       animation: 'high',
       reducedMotion: true,
       lyricScale: 1.3,
       frameRateCap: 60
     })
-    expect(ok).toMatchObject({
-      layout: 'lyrics',
-      ambient: false,
-      ambientBrightness: 1,
-      animation: 'high',
-      reducedMotion: true,
-      lyricScale: 1.3,
-      frameRateCap: 60
-    })
-    const bad = sanitizeSettings({
-      layout: 'grid',
-      ambient: 'yes',
-      ambientBrightness: 0.55,
-      animation: 'wild',
-      reducedMotion: 1,
-      lyricScale: 4,
-      frameRateCap: 240
-    })
+    expect(ok).toMatchObject({ layout: 'lyrics', animation: 'high', reducedMotion: true, lyricScale: 1.3, frameRateCap: 60 })
+    const bad = sanitizeSettings({ version: 2, layout: 'grid', animation: 'wild', reducedMotion: 1, lyricScale: 4, frameRateCap: 240 })
     expect(bad).toMatchObject({
       layout: DEFAULT_SETTINGS.layout,
-      ambient: DEFAULT_SETTINGS.ambient,
-      ambientBrightness: DEFAULT_SETTINGS.ambientBrightness,
       animation: DEFAULT_SETTINGS.animation,
       reducedMotion: DEFAULT_SETTINGS.reducedMotion,
       lyricScale: DEFAULT_SETTINGS.lyricScale,
@@ -146,6 +129,82 @@ describe('LUMINA player settings', () => {
     const file = tempFile()
     new SettingsStore(file).update({ layout: 'lyrics', frameRateCap: 120, lyricScale: 1.15 })
     expect(new SettingsStore(file).get()).toMatchObject({ layout: 'lyrics', frameRateCap: 120, lyricScale: 1.15 })
+  })
+})
+
+describe('LUMINA Lighting settings', () => {
+  it('uses the suggested defaults: hybrid, 45% brightness, edge lighting off until enabled', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      lightingMode: 'hybrid',
+      fullscreenLighting: true,
+      edgeLighting: false,
+      lightingBrightness: 0.45,
+      audioSensitivity: 0.6,
+      bassStrength: 0.55,
+      lightingSmoothing: 0.7,
+      lightingFps: 60,
+      audioSource: 'auto',
+      pauseInFullscreen: true,
+      edgeDisplays: 'primary'
+    })
+  })
+
+  it('migrates Phase 1 ambient settings without losing them', () => {
+    expect(sanitizeSettings({ version: 1, ambient: false, ambientBrightness: 1 })).toMatchObject({
+      fullscreenLighting: false,
+      lightingBrightness: 0.65
+    })
+    expect(sanitizeSettings({ version: 1, ambient: true, ambientBrightness: 0.4 })).toMatchObject({
+      fullscreenLighting: true,
+      lightingBrightness: 0.3
+    })
+    // A version-2 file is read as written, never re-migrated.
+    expect(sanitizeSettings({ version: 2, ambient: false, fullscreenLighting: true, lightingBrightness: 0.8 })).toMatchObject({
+      fullscreenLighting: true,
+      lightingBrightness: 0.8
+    })
+  })
+
+  it('bounds every level and rejects unknown choices', () => {
+    const s = sanitizeSettings({
+      version: 2,
+      lightingMode: 'disco',
+      lightingBrightness: 0,
+      audioSensitivity: 7,
+      bassStrength: -1,
+      lightingSmoothing: Number.NaN,
+      edgeThickness: 0,
+      lightingFps: 75,
+      audioSource: 'microphone',
+      edgeDisplays: 'left',
+      edgeSides: { left: false, top: 'yes' }
+    })
+    expect(s).toMatchObject({
+      lightingMode: 'hybrid',
+      lightingBrightness: 0.05,
+      audioSensitivity: 1,
+      bassStrength: 0,
+      lightingSmoothing: DEFAULT_SETTINGS.lightingSmoothing,
+      edgeThickness: 0.05,
+      lightingFps: 60,
+      audioSource: 'auto',
+      edgeDisplays: 'primary',
+      edgeSides: { left: false, right: true, top: false, bottom: true }
+    })
+    expect(sanitizeSettings({ version: 2, edgeDisplays: 42, lightingFps: 240, audioSource: 'system' })).toMatchObject({
+      edgeDisplays: 42,
+      lightingFps: 240,
+      audioSource: 'system'
+    })
+  })
+
+  it('merges partial edge-side updates and persists lighting settings', () => {
+    const file = tempFile()
+    const store = new SettingsStore(file)
+    store.update({ edgeSides: { ...store.get().edgeSides, top: true }, lightingMode: 'bass', edgeLighting: true })
+    const reopened = new SettingsStore(file).get()
+    expect(reopened.edgeSides).toEqual({ left: true, right: true, top: true, bottom: true })
+    expect(reopened).toMatchObject({ lightingMode: 'bass', edgeLighting: true, version: 2 })
   })
 })
 

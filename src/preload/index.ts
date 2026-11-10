@@ -16,6 +16,7 @@ const api: LyricsAppApi = {
     onArtwork: (cb) => subscribe(IPC.stageArtwork, cb),
     onSnapshot: (cb) => subscribe(IPC.stageSnapshot, cb),
     onSession: (cb) => subscribe(IPC.stageSession, cb),
+    onAudio: (cb) => subscribe(IPC.lightingAudio, cb),
     snapshotDone: (id) => ipcRenderer.send(IPC.stageSnapshotDone, id),
     dismiss: (request) =>
       ipcRenderer.send(IPC.stageDismiss, {
@@ -29,6 +30,16 @@ const api: LyricsAppApi = {
     setAutoSync: (on) => ipcRenderer.send(IPC.colorsAutoSync, on),
     reset: () => ipcRenderer.send(IPC.colorsReset),
     onState: (cb) => subscribe(IPC.colorsState, cb)
+  },
+  edge: {
+    onState: (cb) => subscribe(IPC.edgeState, cb),
+    onAudio: (cb) => subscribe(IPC.lightingAudio, cb)
+  },
+  lighting: {
+    get: () => ipcRenderer.invoke(IPC.lightingGet),
+    set: (patch) => ipcRenderer.send(IPC.lightingSet, patch),
+    setPaused: (paused) => ipcRenderer.send(IPC.lightingPause, paused === true),
+    onState: (cb) => subscribe(IPC.lightingState, cb)
   }
 }
 

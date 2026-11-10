@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { albumDrive, approach } from '../src/renderer/src/ambient/drive'
+import { approach } from '../src/renderer/src/ambient/drive'
 import { CHROME_HIDE_MS, ChromeFader } from '../src/renderer/src/player/chrome-fader'
 import { formatTime, progressOf, sourceLabel, splitTitle } from '../src/renderer/src/player/format'
 import { frameDue, targetFps } from '../src/renderer/src/stage/frame-gate'
@@ -94,22 +94,6 @@ describe('frame rate policy', () => {
     // A refresh that arrives a hair early still counts.
     expect(frameDue(0, 16.2, 60)).toBe(true)
     expect(frameDue(0, 0.1, Number.POSITIVE_INFINITY)).toBe(true)
-  })
-})
-
-describe('album ambient drive', () => {
-  it('dims and calms the light when the music pauses', () => {
-    const playing = albumDrive({ playing: true, animation: 'medium', still: false })
-    const paused = albumDrive({ playing: false, animation: 'medium', still: false })
-    expect(paused.intensity).toBeLessThan(playing.intensity)
-    expect(paused.motion).toBeLessThan(playing.motion)
-  })
-
-  it('scales motion with the animation setting and stops it for reduced motion', () => {
-    const low = albumDrive({ playing: true, animation: 'low', still: false })
-    const high = albumDrive({ playing: true, animation: 'high', still: false })
-    expect(high.motion).toBeGreaterThan(low.motion)
-    expect(albumDrive({ playing: true, animation: 'high', still: true }).motion).toBe(0)
   })
 })
 

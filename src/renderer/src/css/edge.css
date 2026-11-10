@@ -1,0 +1,60 @@
+/* Desktop edge lighting: a transparent page; only the light itself is ever painted. */
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#edge,
+.lm-light,
+.lm-light-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lm-light-canvas[hidden] {
+  display: none;
+}
+
+.lm-edge-css {
+  position: fixed;
+  inset: 0;
+}
+
+.lm-edge-strip {
+  position: absolute;
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+
+.lm-edge-left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.lm-edge-right {
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.lm-edge-top {
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.lm-edge-bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
