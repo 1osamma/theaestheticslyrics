@@ -53,10 +53,10 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
    - Microphone privacy is Allow.
    - The user has a **standard output device** (no virtual or enhanced audio software), which pointed
      at the callback difference.
-   - **Open follow-up: quiet playback.** Both sources capture after the app's own volume. During the
-     fix test Spotify sat at about −68 dBFS, below the analysis silence threshold (−60 dBFS RMS, with
-     a −72 dBFS band floor in `src/main/audio/analysis.ts`), so the light stayed dark. Consider lower
-     or adaptive thresholds, and keep the synthetic tests in `tests/audio-analysis.test.ts` passing.
+   - The very low levels in the fix test (about −68 dBFS) were Spotify's volume at 1%. At normal
+     volume (above 50%) the analysis works as designed, so the thresholds are **unchanged** (see
+     "Spotify at normal volume" below). Captures follow the app's own volume, so a near-silent
+     Spotify gives a dark light by design.
 2. **Resolved, not a bug:** during the Phase 2 test runs Spotify started playing a few seconds after
    the lyrics screen opened and paused after the app quit. The user confirmed they were pressing
    play and pause themselves. Nothing to investigate.
@@ -71,6 +71,23 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
 4. **Known cost:** with Spotify playing, GPU-3D use (about 9%) comes from the **Phase 1 lyric
    word-fill animation** at display rate (text gradient and glow repaint), not from lighting (0.33%
    at 180 FPS). A possible optimisation: render the active-line fill more cheaply.
+
+## Spotify at normal volume (final live check)
+
+Spotify playing above 50% volume. Both sources captured **at the same moment** with
+`npm run check:audio`, which runs `tests-live/{audio-capture,lighting-compare,spectrum}.live.test.ts`.
+
+| Check | Spotify only | All desktop audio | Verdict |
+|---|---|---|---|
+| Analysis, 8 s | bass 0.65 · mids 0.73 · treble 0.00 · intensity 0.58 · 9 beats · 63/477 silent | bass 0.65 · mids 0.73 · treble 0.00 · intensity 0.59 · 9 beats · 45/476 silent | ✔ identical when nothing else plays |
+| Octave spectrum (dBFS, 63 Hz → 16 kHz) | −65 −44 −41 −49 −52 −65 −79 −90 −88 | −65 −44 −42 −49 −53 −65 −79 −92 −89 | ✔ within 1–2 dB in every band: no loss in process loopback |
+| Isolation | earlier run: treble 0.00, 14 beats | same run: treble 0.59, 22 beats | ✔ another app's sound reached system audio only |
+| Silence detection | quiet passage: about 1 s of silent frames; Spotify paused: 100% silent | — | ✔ |
+| Hybrid lighting at default settings, driven by the live Spotify frames | atmosphere 0.19–0.40 (ceiling 0.45), bloom 0.03–0.39 | — | ✔ follows the music, stays OLED-friendly |
+
+- **Treble reads 0 for this track** because its content above 4 kHz sits at about −79 to −90 dBFS,
+  below the −72 dBFS band floor. That's correct for the song, not a capture fault.
+- No analysis, sensitivity or threshold changes were made.
 
 ## Tests and measurements (latest)
 
@@ -117,9 +134,7 @@ All measurements were taken with live **system** audio, in a throwaway profile (
 
 ## Exact next steps
 
-1. **Quiet playback:** make the analysis respond at low app volume (about −70 dBFS). Lower or adapt
-   `silenceDb` / `noiseFloorDb` in `src/main/audio/analysis.ts`, adjust `tests/audio-analysis.test.ts`
-   as needed, and confirm with `npm run check:audio` while Spotify plays quietly.
+1. (Done: the live check at normal volume passed; thresholds are unchanged.)
 2. Ask the user whether **Spotify only** should become the default source. They asked to keep All
    desktop audio as the default for now. Changing it means editing `DEFAULT_SETTINGS.audioSource` in
    `src/main/settings.ts`, its test, and the docs. The helper also supports `auto` (Spotify while it

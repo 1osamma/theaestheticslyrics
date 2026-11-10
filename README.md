@@ -172,7 +172,7 @@ The first run downloads Electron.
 | `npm run package` | Builds the portable folder and zip into `release\`. |
 | `npm run snapshot` | Renders every style, the LUMINA player and edge lighting offscreen into `snapshots\*.png` (add `-- --snapshot-size=2560x1440` for another size). |
 | `npm run build:helper` | Rebuilds `resources\lumina-helper.exe` (audio capture), which `dev`, `start` and `build` otherwise do on their own. |
-| `npm run check:audio` | Live check of audio capture and analysis on this PC (prints levels only). |
+| `npm run check:audio` | Live check on this PC: both audio sources, side by side, their spectra and the lighting response (prints levels only). |
 | `npm run fake-player` | Starts a silent test "player" that shows up in Windows' media controls. |
 | `npm run check:lrclib` | Runs a live check against lrclib.net that prints metadata only. |
 | `npm run icons` | Regenerates the Fluent icon subset and the app icons. |

@@ -175,10 +175,10 @@ analysis silence threshold of −60 dBFS. See the note on quiet playback below.
 The output device is a standard one (no virtual or enhanced audio software), which pointed to the
 callback difference. That turned out to be the cause.
 
-**Quiet playback:** analysis treats RMS below −60 dBFS as silence and scales band levels against a
-−72 dBFS floor. Both sources capture after the app's own volume, so very low Spotify or per-app
-volume (as in the test above) reads as silence and the light stays dark. Lowering those thresholds,
-or adapting them, is an open follow-up.
+**Volume:** analysis treats RMS below −60 dBFS as silence and scales band levels against a −72 dBFS
+floor. Both sources capture after the app's own volume. The −68 dBFS in the test above was Spotify at
+1%; at normal volume (above 50%) both sources analyse identically. See the handoff, "Spotify at
+normal volume". A near-silent app volume leaves the light dark by design.
 
 **Lifecycle:**
 - `AudioService` starts the worker (and the helper) only while a **visible** consumer needs audio:

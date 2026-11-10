@@ -43,7 +43,7 @@
     "package": "npm run build && node scripts/package-win.mjs",
     "fake-player": "electron scripts/fake-player/main.cjs",
     "check:lrclib": "vitest run --config vitest.live.config.ts tests-live/lrclib.live.test.ts",
-    "check:audio": "node scripts/build-helper.mjs && vitest run --config vitest.live.config.ts tests-live/audio-capture.live.test.ts"
+    "check:audio": "node scripts/build-helper.mjs && vitest run --config vitest.live.config.ts tests-live/audio-capture.live.test.ts tests-live/lighting-compare.live.test.ts tests-live/spectrum.live.test.ts"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
