@@ -135,10 +135,9 @@ All measurements were taken with live **system** audio, in a throwaway profile (
 ## Exact next steps
 
 1. (Done: the live check at normal volume passed; thresholds are unchanged.)
-2. Ask the user whether **Spotify only** should become the default source. They asked to keep All
-   desktop audio as the default for now. Changing it means editing `DEFAULT_SETTINGS.audioSource` in
-   `src/main/settings.ts`, its test, and the docs. The helper also supports `auto` (Spotify while it
-   runs, otherwise system audio) if a fallback default is wanted.
+2. **Decided:** the user chose to keep **All desktop audio** as the default source, after Spotify-only
+   was verified working. Don't ask again. Spotify only stays available in Lighting Settings. If this
+   ever changes, edit `DEFAULT_SETTINGS.audioSource` in `src/main/settings.ts`, its test, and the docs.
 3. Have the user review the Lighting Settings window (`npm run dev`, tray → LUMINA Lighting →
    Lighting Settings…) and the edge glow on their desktop; tune defaults if needed.
 4. Live checks not yet done: Bluetooth or USB device switching, Spotify close/restart during
