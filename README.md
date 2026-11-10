@@ -9,7 +9,7 @@
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-ca415e"></a>
 </p>
 
-> **LUMINA** is a fork of theaestheticslyrics that adds a full-screen music player: album art,
+> **LUMINA** is a fork of theaestheticslyrics that adds a full-screen music player and audio-reactive lighting: album art,
 > track info, progress and word-synced lyrics over soft ambient light taken from the cover. It
 > keeps every original style and the desktop overlay. See [LUMINA](#lumina) and
 > [docs/lumina/architecture.md](docs/lumina/architecture.md).
@@ -47,7 +47,7 @@ Press **Ctrl+Alt+L** while a song plays. By default the lyrics screen is now the
 
 - The album art, with a soft glow, plus the title, artist and album, and a progress bar with elapsed and remaining time.
 - Lyrics, line by line. The sung part of each word fills in as it's sung, using real per-word timing when NetEase or an Enhanced LRC file has it.
-- Ambient light from the album art that drifts slowly, dims when you pause and crossfades between songs.
+- Light in the album's colours that moves with the music: bass blooms behind the cover, quiet passages darken, and it crossfades between songs.
 - *Waiting for music* when nothing plays, and a placeholder cover when a song has no art.
 
 The player has no play/pause buttons. The app only *reads* Windows' media controls, so the
@@ -58,13 +58,30 @@ Player settings are in tray → **Full-Screen View**, **Player** and **Frame Rat
 | Setting | What it does |
 |---|---|
 | **Full-Screen View** | *LUMINA Player* or *Lyrics Only*, which is the original full-screen view in the chosen style. |
-| **Player → Ambient Lighting** | Turns the album-art light on or off. **Brightness**: Low, Medium or High. |
-| **Player → Animation** | Subtle, Standard or Expressive: how much the light drifts and the sung word lifts and glows. |
+| **Player → Animation** | Subtle, Standard or Expressive: how much the lyric scrolls, and how much the sung word lifts and glows. |
 | **Player → Lyric Size** | Small, Default, Large or Extra Large. |
 | **Player → Reduce Motion** | No drift, scrolling, lift or glow. Turning off Windows' *Animation effects* does the same. |
 | **Frame Rate Limit** | Match Display, 120, 60 or 30 FPS for the lyrics screen (all styles). |
 
 The overlay (**Show Lyrics → Always**) still uses the four styles below.
+
+### LUMINA Lighting
+
+The album art picks the colours; the music picks how they move. Everything is in tray →
+**LUMINA Lighting**: turn on **Desktop Lighting** (soft light around your screen edges), pick
+a **Lighting Mode** (Off, Static Album Colors, Ambient, Bass Reactive or Hybrid), the
+**Brightness** and the **Monitor**, or open **Lighting Settings…** for sensitivity, bass
+strength, smoothing, glow, edges, frame rate and the audio source. **Pause Lighting** turns
+all of it off at once.
+
+- The edge lighting never takes clicks, focus or a spot in Alt+Tab, and it hides while a game
+  or video fills that monitor, while the full-screen player is open, and a minute after the
+  music stops.
+- **Audio:** by default the lighting reacts to **all desktop audio** (Windows loopback of your
+  output device), so other apps' sound moves it too, and the tray and settings say so.
+  **Spotify only** is available as an experimental source. Nothing is recorded or saved, and no
+  Spotify account is needed.
+- `npm run check:audio` shows live levels from your PC (play something first).
 
 ## How to use it
 
@@ -153,7 +170,9 @@ The first run downloads Electron.
 | `npm test` | Runs the unit tests (Vitest). |
 | `npm run typecheck` | Runs strict TypeScript for the main process and the pages. |
 | `npm run package` | Builds the portable folder and zip into `release\`. |
-| `npm run snapshot` | Renders every style and the LUMINA player offscreen into `snapshots\*.png` (add `-- --snapshot-size=2560x1440` for another size). |
+| `npm run snapshot` | Renders every style, the LUMINA player and edge lighting offscreen into `snapshots\*.png` (add `-- --snapshot-size=2560x1440` for another size). |
+| `npm run build:helper` | Rebuilds `resources\lumina-helper.exe` (audio capture), which `dev`, `start` and `build` otherwise do on their own. |
+| `npm run check:audio` | Live check of audio capture and analysis on this PC (prints levels only). |
 | `npm run fake-player` | Starts a silent test "player" that shows up in Windows' media controls. |
 | `npm run check:lrclib` | Runs a live check against lrclib.net that prints metadata only. |
 | `npm run icons` | Regenerates the Fluent icon subset and the app icons. |
@@ -180,7 +199,8 @@ Run `npm run fake-player`, then start the app with the switches above. `tests\fi
 ```
 src/main/       tray app: media bridge, lyrics sources and cache, palette, windows, power
 src/preload/    the only bridge between the sandboxed pages and the app
-src/renderer/   the lyrics screen (four styles and the LUMINA player), ambient light, design tokens, Colors window
+src/renderer/   the lyrics screen (four styles and the LUMINA player), lighting renderers, edge lighting, settings windows
+native/         lumina-helper (C#): WASAPI audio capture and full-screen detection
 src/shared/     types and the IPC contract used by both sides
 resources/      smtc-bridge.ps1 (Windows media sessions → JSON lines) and the icons
 docs/           screenshots, the original design spec and plan, and docs/lumina (LUMINA architecture)

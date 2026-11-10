@@ -1,7 +1,8 @@
-# LUMINA architecture (Phase 1)
+# LUMINA architecture
 
-LUMINA extends theaestheticslyrics. It adds a full-screen music player to the existing tray app,
-plus the groundwork for ambient lighting. Everything the original app did still works the same way:
+LUMINA extends theaestheticslyrics. Phase 1 added a full-screen music player to the existing tray
+app; Phase 2 adds hybrid audio-reactive lighting for that player and an independent desktop
+edge-lighting overlay (see [LUMINA Lighting](#lumina-lighting-phase-2-hybrid-audio-reactive-light)). Everything the original app did still works the same way:
 the four lyric styles, the always-on overlay, the lock-style screen, the lyrics sources and cache,
 timing offset, monitor choice, tray and hotkey.
 
@@ -88,96 +89,263 @@ from the bridge (see Phase 2). The only interactive chrome today is a top bar (b
 "Esc to close") and the cursor. Both appear on mouse movement in watch-only sessions and fade
 after 2.6 s. On screens that close on any input, they never appear.
 
-## Ambient lighting
+## LUMINA Lighting (Phase 2): hybrid audio-reactive light
 
-### Approach: CSS gradient layers on the GPU, moved by the existing frame loop
+The album palette sets the colours, and live music sets how they move, pulse, glow and change
+intensity. One audio pipeline feeds every lighting window: the fullscreen player background and
+the desktop edge-lighting overlay.
+
+```
+default output device ────┐ WASAPI endpoint loopback: all desktop audio (default source)
+Spotify.exe process tree ─┤ WASAPI process loopback: Spotify only (experimental, silent on the dev PC)
+                          ▼
+resources/lumina-helper.exe  (C#, .NET Framework 4.x, runs as the user)
+   mono float32 PCM + status, length-prefixed packets on stdout
+                          ▼
+src/main/audio/worker.ts  (worker thread: raw PCM never reaches the main thread)
+   PacketReader → AudioAnalyzer (FFT 2048, ~60 Hz) → AudioAnalysisFrame (~200 bytes)
+                          ▼
+src/main/audio/audio-service.ts  (main: lifecycle, backoff, validation)
+                          ▼ IPC lighting:audio (only to visible lighting windows)
+     ┌────────────────────┴────────────────────┐
+lock window (player)                   edge window(s), one per monitor
+LightingEngine (shared)                LightingEngine (shared)
+  album palette + audio → LightFrame     album palette + audio → LightFrame
+WebGL2 shader / CSS fallback           WebGL2 shader / CSS fallback
+```
+
+### Audio capture: method and why
 
 | Option | Verdict |
 |---|---|
-| **WebGL2 fragment shader** | Gives the richest look (mesh gradients, noise fields), but needs a context, handling for a lost context, a fallback without a GPU, and shader code to maintain. It also shades every pixel every frame: 3.7 M pixels at 1440p, and up to 240 times a second. Worth it later for the audio-reactive modes, behind the same interface. |
-| **Canvas 2D** | Blurred gradients are rasterised on the CPU every frame, so it costs the most CPU of the options. Rejected. |
-| **CSS animations (keyframes)** | Cheapest when idle because the compositor runs them, but they ignore the frame-rate limit, pausing and idle throttling. Rejected for the drift. CSS transitions are still used for crossfades. |
-| **CSS gradients moved from JS** ✔ | Each light is a huge radial gradient on its own compositor layer. It is rasterised once per colour change, and frames only change `transform` and `opacity`, so nothing is repainted. The light moves inside the existing loop at its idle rate (24 FPS), which looks smooth for drift this slow and follows the frame-rate limit, pause and hidden-window rules automatically. It also works with software compositing. |
+| **WASAPI endpoint loopback** of the default render device ✔ **(default source)** | Works on every Windows version without elevation, and is verified live on the target PC. It captures **everything** playing on that device, not only Spotify, and the UI says so wherever it is active: "All desktop audio (not Spotify only)". |
+| **WASAPI process loopback** (`ActivateAudioInterfaceAsync` with `VAD\Process_Loopback` and `INCLUDE_TARGET_PROCESS_TREE`, build 20348+) ⚠ experimental | Implemented and selectable ("Spotify only (experimental)"). It would capture only Spotify's process tree (the helper finds the root `Spotify.exe` and follows restarts). On the development PC it delivers only silence; see [Spotify-only capture](#spotify-only-capture-status). |
+| Native Node addon (N-API) | Needs a C++ toolchain on every build machine and an ABI-specific rebuild for each Electron upgrade. Rejected. |
+| Third-party npm capture packages | Not evaluated in depth: any would add a prebuilt native binary per Electron ABI, which the helper avoids. |
+| .NET 6+ sidecar | Needs the .NET runtime on the user's PC (or ~70 MB self-contained). Rejected. |
 
-There are no new dependencies. A static SVG-noise grain at 5% opacity dithers the gradients so
-they don't band on the OLED panel.
+The helper is a few hundred lines of C# 5, compiled by `scripts/build-helper.mjs` with the
+`csc.exe` that ships with .NET Framework 4.x on every Windows 10/11 PC. Building it needs no SDK
+and no downloads, the result needs no runtime install, and it runs without Administrator rights
+(default `asInvoker` manifest). `npm run dev`, `npm start` and `npm run build` build it
+automatically (`pre*` scripts), the CI workflow compiles it, and `npm run package` ships it next to
+the asar, as it does with `smtc-bridge.ps1`.
 
-### Contract (`src/shared/lighting.ts`, `src/renderer/src/ambient/`)
+**Audio Capture Source** (settings): **All desktop audio** (the default) or **Spotify only
+(experimental)**. The source is one setting passed to the helper (`capture --source system|spotify`).
+Making Spotify-only the default later means changing a default, not the architecture. The helper
+also still understands `auto` (Spotify when possible, otherwise system audio); the app doesn't
+offer it until process loopback works.
 
-- `AmbientPalette`: 2–4 colours (strongest first) tuned to glow on black, with `source: 'album' | 'palette'`.
-  `src/main/palette/ambient.ts` makes them from k-means clusters of the cover. That clustering is now
-  shared with the lyric palette in `extract.ts`, so the cover is analysed once.
-- `LightingDrive`: `{ intensity, motion }`, both 0–1, for each frame. Phase 1's `albumDrive()` breathes
-  with play and pause and follows the animation setting.
-- `AmbientRenderer`: `mount / setColors / setBrightness / setEnabled / frame / destroy`. Today
-  `createAmbientLayer()` is the only implementation. A WebGL renderer or the edge-glow overlay would
-  implement the same interface.
-- `LightingMode`: `album` (implemented), and `audio`, `hybrid` and `static` (planned).
-  `IMPLEMENTED_LIGHTING_MODES` lists what works, so settings and the UI can't offer a mode that does nothing.
-- `AudioBands`: `{ energy, bass, mid, treble }`, smoothed and 0–1. Nothing produces it in Phase 1.
+#### Spotify-only capture: status
 
-### Planned modes
+**Compared with Microsoft's ApplicationLoopback sample:**
+- **Same:** the activation parameters (`AUDIOCLIENT_ACTIVATION_PARAMS` in a `VT_BLOB` PROPVARIANT),
+  an agile completion handler, the stream flags (`LOOPBACK | EVENTCALLBACK`), the event-driven
+  `GetNextPacketSize` / `GetBuffer` / `ReleaseBuffer` loop, and the supported Windows build (26200 ≥ 20348).
+- **One difference not tried:** the sample calls `Initialize` inside the completion callback; the
+  helper calls it after the callback signals.
 
-- **Audio Reactive.** Capture WASAPI loopback (the system mix, never Spotify's stream) in a small
-  native helper or a utility process. Run an FFT off the UI thread, then fold the result into bass,
-  mid and treble bands with attack/release envelopes (fast attack ~40 ms, slow release ~300 ms) and
-  a soft limiter, so beats never flash. Post `AudioBands` to the renderer at ≤ 60 Hz, and map them
-  to `LightingDrive` with a user sensitivity setting.
-- **Hybrid.** The album palette sets the colours, and `AudioBands` sets `LightingDrive`.
-- **Static.** One user colour and brightness, so `AmbientPalette` holds a single colour.
+**Evidence from one diagnostic pass, with Spotify playing:**
+- Windows honours the activation parameters: an invalid activation type returns `E_INVALIDARG`.
+- About 100 packets per second arrive and are never flagged silent, but they hold only dither (−99.7 dBFS).
+- The result is the same for:
+  - the root process tree and each Spotify process on its own;
+  - 44.1 kHz and 48 kHz PCM, and 32-bit float;
+  - MTA and STA threads;
+  - with and without `AUTOCONVERTPCM`.
+- Exclude mode (everything except the target), even excluding Explorer, is byte-for-byte equally
+  silent, while endpoint loopback of the same device hears the music at about −18 dBFS.
+- Microphone privacy allows desktop apps, so that's not the cause.
 
-## Desktop lighting overlay (planned)
+So the process-loopback device isn't being fed on this PC at all. The likely causes are its audio
+environment (driver, audio effects or a virtual output device) or the untried `Initialize`-in-callback
+difference. Until that is solved, system loopback is the source.
 
-The lyric overlay stays as it is: transparent, click-through (`setIgnoreMouseEvents(true)`),
-`focusable: false`, always on top at `screen-saver` level, and hidden 3 s after a pause. The
-lighting overlay will be a **separate window kind** in `StageController`, so it can run with or
-without the lyrics:
+**Lifecycle:**
+- `AudioService` starts the worker (and the helper) only while a **visible** consumer needs audio:
+  edge lighting while it shows, or the fullscreen player while music played in the last 15 s. The
+  mode must use audio (Bass Reactive, Hybrid).
+- It stops 4 s after the last consumer leaves (so reopening the player doesn't restart capture).
+  The worker closes the helper's stdin and kills it after 1.5 s if it doesn't exit. The helper also
+  exits when its parent process disappears.
+- A crashed helper or worker is restarted with backoff from 1 s up to 30 s. Capture failures are
+  logged and the light settles as if silent; they never reach the lyrics.
+- In endpoint mode the helper reopens the device when the default output changes (polled every
+  second): headphones, Bluetooth, USB DACs. Loopback delivers no packets during silence, so the
+  helper pads the gaps with zeros to keep analysis timing steady. Every queue and buffer is bounded:
+  the packet reader holds at most one packet (≤ 1 MB, otherwise it resets), and the renderer perf
+  rings are fixed-size.
+- Nothing is recorded, saved or sent anywhere. PCM exists only in memory, for one FFT window.
 
-- One transparent, click-through, non-focusable window per selected monitor. It draws only a band
-  around the screen edges with `AmbientRenderer` (adjustable glow width and opacity). The middle of
-  the screen is never painted.
-- It never takes input or focus, so mouse and keyboard pass through as they do with the lyric overlay.
-- It hides itself while another app is full screen or a game holds exclusive full screen. It
-  checks the foreground window's bounds against the monitor, polled slowly, plus Windows' "busy"
-  state. It can also hide on its own after a pause (optional).
-- It runs at a low frame rate (15–30 FPS), because Windows composites transparent full-screen windows expensively.
-- It is not a lock-screen replacement. Windows does not allow one, and the existing lock-style
-  screen remains an ordinary top-most window.
+### Analysis (`src/main/audio/analysis.ts`)
+
+| Step | Detail |
+|---|---|
+| Window | 2048-sample Hann (42.7 ms at 48 kHz), hop = sample rate / 60, so 60 frames/s (measured 60.0) |
+| Bands | bass 30–150 Hz (kick, bass), mids 250–2000 Hz (vocals, instruments), treble 4–12 kHz (cymbals, air) |
+| Levels | RMS amplitude of the band's bins in dBFS |
+| Normalisation | Adaptive per band. The recent peak maps to 1 and 30 dB below it to 0. A louder passage raises the peak at once (no overshoot); a quieter one reads darker while the peak falls at 3 dB/s. A noise floor (−72 dBFS) is never stretched to full scale. |
+| Smoothing | Attack/release per band (for example bass 18 ms / 150 ms), independent of frame rate |
+| Transients | Spectral flux of log-compressed magnitudes up to 10 kHz, relative to its 1.5 s average |
+| Beat-like pulse | A bass-band flux onset above its running mean + 1.6σ, at most every 240 ms, decaying over 170 ms. It is a pulse, **not** BPM detection. |
+| Silence | RMS below −60 dBFS for 250 ms. All levels go to 0 and no beats fire. |
+| Output | `AudioAnalysisFrame` { timestamp, rms, bass, mids, treble, transient, beatPulse, intensity, isSilent }. Every value is clamped to 0–1 and validated again in the main process (`sanitizeAudioFrame`). |
+
+### Hybrid lighting engine (`src/shared/lighting-engine.ts`)
+
+Each window runs its own engine instance (cheap), fed with the same analysis frames. `sample(now)`
+interpolates toward the latest audio with the user's smoothing, so the render rate is independent of
+the 60 Hz analysis rate. Audio older than 400 ms counts as silence.
+
+| Layer | Driven by (Hybrid) |
+|---|---|
+| 1. Base album-colour atmosphere | brightness × (0.35 + 0.65 × intensity): quiet passages darken, loud ones reach the chosen brightness |
+| 2. Slowly moving gradients | drift speed 0.3 + 0.9 × mids, accumulated as a phase so speed changes never jump |
+| 3. Bass bloom behind the album art | bass strength × (0.35 × bass + 0.7 × beat pulse) + 0.12 × transient, radius growing with intensity |
+| 4. Treble shimmer | 0.4 × treble × sensitivity. It only modulates light that is already there, so it never flickers on black. |
+| 5. Edge illumination | atmosphere and bloom, along the selected edges |
+
+- **Colours** come only from the album palette (`palette/ambient.ts`). They crossfade over 1.6 s on
+  a track change, starting from what is on screen, so a quick skip never jumps. Audio never changes them.
+- **Modes:** Off, Static Album Colors (still), Ambient (drift and a slow breath, no audio), Bass
+  Reactive (steady atmosphere, bass bloom), Hybrid (all layers, the default).
+- **Reduced motion** (the setting, or Windows' animation effects off): no drift, no shimmer, bloom
+  capped at 0.35 and slowed 3×.
+
+### Rendering (`src/renderer/src/lighting/`)
+
+- **WebGL2:** one fragment shader on a vertex-less fullscreen triangle (`gl_VertexID`). There are no
+  buffers or textures, and one program and VAO are created once and reused. Per frame it uploads
+  uniforms and makes one draw call. It renders at **half resolution** (1280×720 for 1440p); soft light
+  scales up invisibly at a quarter of the fill cost.
+- **Picture quality:** ±0.5/255 dithering prevents OLED banding. A soft shoulder (x / (1 + 0.35x))
+  keeps peaks restrained. A readability guard dims the light up to 35% behind the lyrics column. The
+  overlay writes premultiplied alpha that is exactly 0 where unlit, so the desktop's true black stays black.
+- **Robustness:** a lost context (driver reset, GPU process crash) switches to the CSS fallback and
+  back on restore. Destroying a renderer releases its context at once (`WEBGL_lose_context`).
+- **Fallback:** without GPU compositing (`gpu-info-update`) or WebGL2, the player uses the Phase 1
+  CSS gradient layers and the overlay uses four CSS gradient strips, both driven by the same light frames.
+- **Pacing:** light draws at its own target (30 / 60 / 120 / 240) through `FrameGate`, which follows a
+  schedule so the average rate matches the target even when it doesn't divide the refresh rate.
+  Identical frames are skipped. The lyrics never wait on lighting.
+
+### Desktop edge lighting (`src/main/ui/edge-controller.ts`, `src/renderer/src/edge/`)
+
+One window per selected monitor, separate from the lyrics overlay, the player and the settings
+window. Verified on the real window with `lumina-helper probe`:
+
+| Requirement | How | Verified |
+|---|---|---|
+| Click-through | `setIgnoreMouseEvents(true)` → `WS_EX_TRANSPARENT` + `WS_EX_LAYERED` | ✔ `WindowFromPoint` at a lit edge and at the centre returns the window underneath |
+| Never takes focus | `focusable: false` → `WS_EX_NOACTIVATE`, `showInactive()` | ✔ style bit set |
+| Not in Alt+Tab or the taskbar | `type: 'toolbar'` → `WS_EX_TOOLWINDOW`, `skipTaskbar` | ✔ style bit set, no `WS_EX_APPWINDOW` |
+| Transparent, no opaque background | `transparent: true`, `#00000000`, premultiplied output | ✔ snapshot PNG has alpha 0 away from the edges |
+| High DPI, monitor-aware | DIP bounds per display, `devicePixelRatio` in the renderer; full-screen rectangles compared in physical pixels (`dipToScreenRect`) | ✔ unit-tested with a 150% + 100% two-monitor layout; live run on one 2560×1440 monitor |
+| Monitor selection | Primary, All, or one display; falls back to primary if that display disconnects; windows re-placed on `display-metrics-changed` | ✔ unit tests |
+| Paused in full-screen apps | `lumina-helper fullscreen`: the foreground window covers its monitor **and** has no title bar (borderless, F11), or `SHQueryUserNotificationState` reports exclusive D3D. LUMINA's own windows never count. | ✔ live: a maximized window isn't flagged |
+| Emergency off | Tray → LUMINA Lighting → **Pause Lighting** hides every edge window and stops capture at once | ✔ code path |
+| OLED rest | Hidden 60 s after music stops (no SMTC playback and no audible capture) | ✔ unit tests |
+
+Edge lighting also hides while the fullscreen player is open (the player has its own light).
 
 ## Settings
 
-All settings stay in `%APPDATA%\theaestheticslyrics\settings.json` (`version: 1`).
-`sanitizeSettings` checks every field on its own, so a file from before LUMINA loads unchanged and
-picks up the new defaults. The folder name stays the same on purpose: renaming the app would move
-the data folder and lose existing settings, the cache and the user's own lyrics.
+All settings stay in `%APPDATA%\theaestheticslyrics\settings.json`, now `version: 2`.
+`sanitizeSettings` validates every field on its own. A version-1 file (Phase 1) migrates as
+follows: `ambient: false` becomes Fullscreen Lighting off, and Low/Medium/High brightness becomes
+30/45/65%. Everything else carries over unchanged. Changes apply live.
 
-| Setting | Field | Status |
+| Setting | Field | Default |
 |---|---|---|
-| Display mode | `showOn` (Lock Screen / Always), `layout` (Player / Lyrics Only) | ✔ |
-| Lyric style | `style` | ✔ (existing) |
-| Font size | `lyricScale` (0.85 / 1 / 1.15 / 1.3, player) | ✔ |
-| Timing offset | `offsetMs` | ✔ (existing) |
-| Ambient lighting on/off | `ambient` | ✔ |
-| Brightness | `ambientBrightness` (0.4 / 0.7 / 1) | ✔ |
-| Animation intensity | `animation` (low / medium / high) | ✔ |
-| Frame-rate limit | `frameRateCap` (display / 120 / 60 / 30), whole lyrics screen | ✔ |
-| Monitor | `displayId` | ✔ (existing) |
-| Start with Windows | `launchAtLogin` | ✔ (existing, packaged builds) |
-| Reduced motion | `reducedMotion`, plus Windows' setting | ✔ |
-| Lighting mode | — | Planned. Only `album` exists, so there is no setting yet. |
-| Sensitivity | — | Planned (audio-reactive). |
+| Lighting Mode | `lightingMode` | Hybrid |
+| Enable Fullscreen Lighting | `fullscreenLighting` | On |
+| Enable Desktop Edge Lighting | `edgeLighting` | Off (until enabled) |
+| Brightness | `lightingBrightness` 5–100% | 45% |
+| Audio Sensitivity | `audioSensitivity` | 60% |
+| Bass Strength | `bassStrength` | 55% |
+| Smoothing | `lightingSmoothing` | 70% |
+| Glow Radius | `glowRadius` | 50% |
+| Edge Thickness / Spread / Softness | `edgeThickness`, `edgeSpread`, `edgeSoftness` | 35% / 60% / 70% |
+| Edges | `edgeSides` | left, right, bottom |
+| Edge Glow in the Player | `playerEdgeGlow` | Off |
+| Render FPS | `lightingFps` 30 / 60 / 120 / 240 | 60 |
+| Audio Capture Source | `audioSource` system / spotify (experimental) | All desktop audio (`system`) |
+| Monitor Selection | `edgeDisplays` primary / all / display id | Primary |
+| Pause During Fullscreen Games | `pauseInFullscreen` | On |
+| Start Edge Lighting with Windows | `edgeAtStartup` | On |
+| Lyric style, font size, timing, display, Start with Windows, reduced motion, frame-rate limit | (Phase 1 fields) | unchanged |
 
-## Performance notes
+**Where to change them:**
+- **Tray → LUMINA Lighting:** Enable Desktop Lighting, Fullscreen Player Lighting, Lighting Mode,
+  Brightness, Select Monitor, Pause Lighting, and Lighting Settings…, which opens the full panel.
+- **The panel:** shows live status (audio mode, edge state, renderer) and validates nothing itself.
+  The main process accepts only lighting keys (`pickLightingPatch`) and the settings store
+  validates every value.
 
-- The loop draws at full rate only while something moves (scrolling, or a word filling during
-  playback). Otherwise it drops to 24 FPS for the light. While paused nothing changes except the light.
-- **Frame-rate limit:** at 60 FPS and above, the loop skips display refreshes rather than sleeping,
-  so frames stay aligned to vsync. On a 240 Hz panel, 120 means every second refresh and 60 every
-  fourth. Lower rates use the original timer path, which still wakes up in time for the next word.
-- The loop stops completely while the page is hidden (`document.hidden`), as it is for the lyrics
-  screen, which is loaded in advance and kept hidden. It starts again when the page becomes visible.
-- Per-frame DOM writes go through `setStyle`, which skips unchanged values. Resting lines are left
-  alone, and the elapsed and remaining times only change once a second.
-- **Not measured yet:** frame times and power at 60, 120 and 240 Hz on the target RTX 4070 SUPER /
-  1440p OLED. The design aims at those rates, but no number is claimed until it has been profiled
-  (Chrome DevTools Performance panel, `--enable-gpu-benchmarking`, PresentMon).
+## Performance (measured)
+
+All runs on the target PC: RTX 4070 SUPER, Ryzen 7 7700X, 2560×1440 at **179.9 Hz** (the panel's
+current mode, not 240). Each used the real app, a throwaway profile and live system audio.
+
+- **Frame timing** comes from the pages' own `requestAnimationFrame` counters.
+- **CPU and GPU** come from Windows counters (`GPU Engine … engtype_3D`, per-process CPU) sampled
+  once a second.
+- **Main-thread blocking** is the event-loop delay above Windows' 15.6 ms timer granularity.
+
+| Scenario | Frames | Frame interval p50 / p99 / max | Script per frame | LUMINA GPU 3D avg / max | CPU (all cores) |
+|---|---|---|---|---|---|
+| Edge overlay, 60 FPS target, 20 s | 59.9 FPS | 16.7 / 16.8 / 16.8 ms | 0.02 ms | 0.31% GPU-process CPU (per-process GPU-3D not sampled in this run) | 0.66% total (Browser 0.13, GPU 0.31, renderer 0.22) |
+| Player, lighting only (Spotify paused), 240 target, 12 s | 180 FPS (the panel's limit) | 5.6 / 5.8 / 5.8 ms | 0.04 ms | 0.33% / 1.41% | 1.43% |
+| Player + Spotify playing (lyric word fill at display rate), 60 target, 12 s | page 140.6, light 60.0 | page 5.6 / 16.8 / 22.3 ms | 0.13 ms | 9.07% / 27.25% | 7.23% |
+| Player + Spotify playing, 120 target, 12 s | page 156.6, light 119.0 | light p99 12.3 ms | 0.12 ms | 7.71% / 21.2% | 7.71% |
+
+**Other measurements:**
+- **Long tasks:** none in any run.
+- **Main-thread blocking:** p99 ≤ 0.62 ms and max ≤ 1.29 ms in clean runs. A 609 ms spike in one
+  earlier run was the debug screenshot (synchronous PNG encode) and is excluded.
+- **Helper CPU:** 0.02–0.03% of all cores.
+- **Audio delivery latency** (analysis → renderer, IPC): p50 0–1 ms, p99 1 ms.
+- **Audio-to-light latency:** not measured end to end. The algorithmic part is about 21 ms (half
+  the FFT window) + up to 10 ms (WASAPI packet) + up to 16.7 ms (hop) + about 1 ms delivery. On top
+  of that comes the engine's attack time constant, about 104 ms at the default 70% smoothing (about
+  20 ms at 0%).
+- **Memory (working set):** browser about 165 MB, GPU process about 165 MB, renderer about 150–220 MB.
+- **3-minute soak** (edge lighting, live audio, WebGL): 60.0 FPS throughout (frame p99 16.9 ms, max
+  22.4 ms), script 0.03 ms per frame, no long tasks, audio delivery p99 1 ms. Working set at the
+  start and end: browser 165 → 154 MB, GPU process 151 → 155 MB, renderer 222 → 227 MB. No growth trend.
+- **Without a GPU** (`--disable-gpu`): the CSS fallback took over, at 21.8 FPS under software
+  compositing, with no long tasks and audio still at 60 frames/s.
+
+**The GPU cost while playing comes from the Phase 1 lyric animation, not the lighting:**
+- Lighting alone at 180 FPS used 0.33% of the GPU.
+- With Spotify playing, the word-fill text gradient and glow repaint at the display rate.
+
+Lowering **Frame Rate Limit** (lyrics) or using Reduce Motion cuts that cost. A follow-up could
+render the active-line fill more cheaply.
+
+## Reliability (what was exercised)
+
+| Scenario | Result |
+|---|---|
+| Spotify not running / closed | The default desktop-audio source doesn't depend on Spotify. The experimental Spotify source waits and re-checks every second. Not exercised by closing Spotify during this work. |
+| Pause / resume, quiet passages | Analysis reports silence after 250 ms. The light settles to 35% of brightness and stays dark. Edge lighting rests 60 s after music stops (no playback and no audible capture). Unit-tested; pauses observed live. |
+| Track changes | The palette crossfades over 1.6 s from what is on screen. Unit-tested; seen live with Spotify. |
+| Output device change (USB, Bluetooth) | The helper polls the default device every second and reopens it; an invalidated device ends the stream and it reopens. Not exercised with real device switching. |
+| Other apps playing audio | In system mode they drive the light (by design, and labelled); in Spotify mode they are excluded. Verified live: endpoint loopback heard music while the Spotify stream was silent. |
+| Process loopback unavailable | Activation errors are reported and the source can be switched; the default doesn't depend on it. |
+| Helper or worker crash | Restart with backoff from 1 s to 30 s (unit-tested). Capture errors never affect lyrics. |
+| A full-screen app or game on the monitor | Edge lighting hides on that monitor and capture stops if no other consumer needs it. Verified live: another app's full-screen window hid it, and it came back after. |
+| Maximized windows | Not treated as full screen (verified live). |
+| Several displays, scaling, disconnects | Display targeting and high-DPI full-screen matching unit-tested; windows re-placed on display changes. Only one monitor was available live. |
+| No GPU | CSS fallback verified live with `--disable-gpu`. A lost WebGL context switches to CSS and back. |
+| Quit with edge lighting on | Fixed during testing (edge windows used to cancel the quit). Now exits cleanly and the helper is gone (verified). |
+| Restart with saved settings | Settings v2 persistence and v1 migration unit-tested. |
+| Several consumers at once | One worker and helper serve the player and every edge window (unit-tested lifecycle). |
+
+## Phase 1 performance notes (still true)
+
+- The stage loop draws at full rate only while something moves. Lighting adds its own rate, still
+  capped by the Frame Rate Limit.
+- The loop stops completely while the page is hidden.
+- Per-frame DOM writes skip unchanged values (`setStyle`).

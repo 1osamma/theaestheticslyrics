@@ -265,8 +265,10 @@ namespace Lumina.Helper
                 Marshal.WriteInt16(formatPtr, 14, 16);
                 Marshal.WriteInt16(formatPtr, 16, 0);
                 var format = StreamFormat.FromPointer(formatPtr);
-                uint flags = AudioConst.AUDCLNT_STREAMFLAGS_LOOPBACK | AudioConst.AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
-                    AudioConst.AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AudioConst.AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+                // Same flags as Microsoft's ApplicationLoopback sample: the process-loopback virtual device
+                // converts to the requested format itself. (On the development PC this path still delivers
+                // only silence; see docs/lumina/architecture.md, "Spotify-only capture".)
+                uint flags = AudioConst.AUDCLNT_STREAMFLAGS_LOOPBACK | AudioConst.AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
                 hr = client.Initialize(AudioConst.AUDCLNT_SHAREMODE_SHARED, flags, 200000, 0, formatPtr, IntPtr.Zero);
                 if (hr != Hr.S_OK) return "process loopback initialize failed (0x" + hr.ToString("X8") + ")";
 

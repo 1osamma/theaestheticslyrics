@@ -168,9 +168,9 @@ const fps = select<LightingFps>(
 )
 const source = select<AudioSource>(
   'Audio Capture Source',
-  (['auto', 'spotify', 'system'] as AudioSource[]).map((v) => ({ value: v, text: AUDIO_SOURCE_LABELS[v] })),
+  (['system', 'spotify'] as AudioSource[]).map((v) => ({ value: v, text: AUDIO_SOURCE_LABELS[v] })),
   (v) => send('audioSource', { audioSource: v }, true),
-  'All system audio reacts to everything playing on this PC, not only Spotify.'
+  'All desktop audio reacts to everything playing on this PC, not only Spotify. Spotify-only capture is experimental.'
 )
 
 root.append(
@@ -220,7 +220,7 @@ function render(next: LightingPanelState): void {
     a.state === 'capturing'
       ? a.mode === 'process'
         ? 'Audio · Spotify only (process loopback)'
-        : 'Audio · All system audio (not Spotify only)'
+        : 'Audio · All desktop audio (not Spotify only)'
       : a.state === 'stopped'
         ? 'Audio · Idle (starts when lighting needs it)'
         : a.state === 'waiting'

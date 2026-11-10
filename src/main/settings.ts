@@ -55,7 +55,7 @@ export interface Settings extends LightingSettings {
 
 export const IDLE_CHOICES: readonly IdleMinutes[] = [0, 1, 2, 5]
 export const OFFSET_LIMIT_MS = 1000
-export const AUDIO_SOURCES: readonly AudioSource[] = ['auto', 'spotify', 'system']
+export const AUDIO_SOURCES: readonly AudioSource[] = ['system', 'spotify']
 export const LYRIC_SCALE_CHOICES: readonly number[] = [0.85, 1, 1.15, 1.3]
 export const ANIMATION_CHOICES: readonly AnimationIntensity[] = ['low', 'medium', 'high']
 export const FRAME_RATE_CHOICES: readonly FrameRateCap[] = [0, 120, 60, 30]
@@ -93,7 +93,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   edgeSides: Object.freeze({ left: true, right: true, top: false, bottom: true }),
   playerEdgeGlow: false,
   lightingFps: 60,
-  audioSource: 'auto',
+  audioSource: 'system',
   edgeDisplays: 'primary',
   pauseInFullscreen: true,
   edgeAtStartup: true

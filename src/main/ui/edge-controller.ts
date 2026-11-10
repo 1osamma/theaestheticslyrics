@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, type Display } from 'electron'
+import { BrowserWindow, app, screen, type Display } from 'electron'
 import type { AudioAnalysisFrame } from '@shared/audio-frame'
 import { IPC, type EdgeState } from '@shared/ipc'
 import type { EdgeDisplays } from '@shared/lighting'
@@ -38,11 +38,14 @@ export class EdgeController {
   private state: EdgeState | null = null
   private showing = 0
   private disposed = false
+  /** Set on before-quit: windows must close then, or they would cancel the quit. */
+  private quitting = false
 
   constructor(private readonly deps: EdgeControllerDeps) {
     screen.on('display-added', this.onDisplays)
     screen.on('display-removed', this.onDisplays)
     screen.on('display-metrics-changed', this.onDisplays)
+    app.on('before-quit', this.onBeforeQuit)
   }
 
   get showingCount(): number {
@@ -103,11 +106,16 @@ export class EdgeController {
     screen.removeListener('display-added', this.onDisplays)
     screen.removeListener('display-removed', this.onDisplays)
     screen.removeListener('display-metrics-changed', this.onDisplays)
+    app.removeListener('before-quit', this.onBeforeQuit)
     for (const ew of this.windows.values()) if (!ew.win.isDestroyed()) ew.win.destroy()
     this.windows.clear()
   }
 
   private readonly onDisplays = (): void => this.reconcile()
+
+  private readonly onBeforeQuit = (): void => {
+    this.quitting = true
+  }
 
   private reconcile(): void {
     if (this.disposed) return
@@ -180,12 +188,13 @@ export class EdgeController {
     win.setVisibleOnAllWorkspaces(true)
     harden(win)
     win.on('close', (e) => {
-      if (this.disposed) return
+      if (this.disposed || this.quitting) return
       e.preventDefault()
       win.hide()
     })
     const ew: EdgeWindow = { displayId: display.id, win, ready: false }
     win.webContents.on('render-process-gone', (_e, details) => {
+      if (this.disposed || this.quitting) return
       this.deps.log(`edge: renderer gone (${details.reason}), recreating`)
       if (!win.isDestroyed()) win.destroy()
       this.windows.delete(display.id)

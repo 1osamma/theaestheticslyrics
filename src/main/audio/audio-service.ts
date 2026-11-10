@@ -36,15 +36,17 @@ const RESTART_MAX_MS = 30_000
 export class AudioService extends EventEmitter<AudioServiceEvents> {
   private worker: AudioWorker | null = null
   private wanted = false
-  private source: AudioSource = 'auto'
+  private source: AudioSource = 'system'
   private stopTimer: ReturnType<typeof setTimeout> | null = null
   private restartTimer: ReturnType<typeof setTimeout> | null = null
   private restartDelay = RESTART_MIN_MS
   private current: AudioStatus = { state: 'stopped', mode: null, message: '' }
   private disposed = false
-  /** Frames forwarded since the last `takeStats` (for diagnostics). */
+  /** Frames forwarded and their level sums (diagnostics: `--perf-after` reports averages). */
   framesSeen = 0
   rejected = 0
+  readonly levels = { frames: 0, silent: 0, bass: 0, mids: 0, treble: 0, intensity: 0, beats: 0 }
+  private lastPulse = 0
 
   constructor(private readonly deps: AudioServiceDeps) {
     super()
@@ -137,6 +139,7 @@ export class AudioService extends EventEmitter<AudioServiceEvents> {
           return
         }
         this.framesSeen++
+        this.tally(frame)
         this.restartDelay = RESTART_MIN_MS
         this.emit('frame', frame)
         break
@@ -170,6 +173,23 @@ export class AudioService extends EventEmitter<AudioServiceEvents> {
       this.restartTimer = null
       if (this.wanted && !this.worker) this.start()
     }, delay)
+  }
+
+  /** Clears the level sums. */
+  resetLevels(): void {
+    for (const key of Object.keys(this.levels) as (keyof typeof this.levels)[]) this.levels[key] = 0
+  }
+
+  private tally(frame: AudioAnalysisFrame): void {
+    const l = this.levels
+    l.frames++
+    if (frame.isSilent) l.silent++
+    l.bass += frame.bass
+    l.mids += frame.mids
+    l.treble += frame.treble
+    l.intensity += frame.intensity
+    if (frame.beatPulse > this.lastPulse + 0.2) l.beats++
+    this.lastPulse = frame.beatPulse
   }
 
   private clearStopTimer(): void {

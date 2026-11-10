@@ -96,8 +96,8 @@ describe('pickLightingPatch', () => {
 
 describe('audioLine', () => {
   it('never claims Spotify-only capture when capturing all system audio', () => {
-    expect(audioLine({ state: 'capturing', mode: 'process', message: '' })).toBe('Audio: Spotify only')
-    expect(audioLine({ state: 'capturing', mode: 'system', message: '' })).toMatch(/all system audio/i)
+    expect(audioLine({ state: 'capturing', mode: 'process', message: '' })).toBe('Audio: Spotify only (experimental)')
+    expect(audioLine({ state: 'capturing', mode: 'system', message: '' })).toMatch(/all desktop audio/i)
     expect(audioLine({ state: 'capturing', mode: 'system', message: '' })).toMatch(/not Spotify only/i)
     expect(audioLine({ state: 'stopped', mode: null, message: '' })).toBeNull()
   })

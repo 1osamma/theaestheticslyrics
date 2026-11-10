@@ -318,7 +318,7 @@ export class AppController {
   }
 
   private onAudioStatus(status: AudioStatus): void {
-    this.log(`audio: ${status.state}${status.mode ? ` (${status.mode === 'process' ? 'Spotify only' : 'all system audio'})` : ''}${status.message ? `: ${status.message}` : ''}`)
+    this.log(`audio: ${status.state}${status.mode ? ` (${status.mode === 'process' ? 'Spotify only' : 'all desktop audio'})` : ''}${status.message ? `: ${status.message}` : ''}`)
     this.pushLighting()
   }
 
@@ -631,6 +631,7 @@ export class AppController {
     const loop = monitorEventLoopDelay({ resolution: 10 })
     loop.enable()
     const frames0 = this.audio.framesSeen
+    this.audio.resetLevels()
     await this.stage.perfReset()
     await this.edge.perfReset()
     const samples: Electron.ProcessMetric[][] = []
@@ -658,7 +659,16 @@ export class AppController {
     const avg = (a: number[]): number => Math.round((a.reduce((x, y) => x + y, 0) / Math.max(1, a.length)) * 100) / 100
     const report = {
       windowMs,
-      audio: { status: this.audio.status, framesPerSecond: Math.round(((this.audio.framesSeen - frames0) / windowMs) * 10000) / 10 },
+      audio: {
+        status: this.audio.status,
+        framesPerSecond: Math.round(((this.audio.framesSeen - frames0) / windowMs) * 10000) / 10,
+        averages: (() => {
+          const l = this.audio.levels
+          const n = Math.max(1, l.frames)
+          const r = (v: number): number => Math.round((v / n) * 1000) / 1000
+          return { frames: l.frames, silentFraction: r(l.silent), bass: r(l.bass), mids: r(l.mids), treble: r(l.treble), intensity: r(l.intensity), beatPulses: l.beats }
+        })()
+      },
       // Windows timers tick every ~15.6 ms, so the median delay is timer granularity; blocking is what exceeds it.
       mainEventLoopDelayMs: {
         p50: ms(loop.percentile(50)),

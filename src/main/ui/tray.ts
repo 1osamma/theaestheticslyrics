@@ -76,7 +76,7 @@ export function audioLine(audio: AudioStatus): string | null {
   if (audio.state === 'starting') return 'Audio: starting…'
   if (audio.state === 'error') return 'Audio: unavailable, retrying'
   if (audio.state === 'waiting') return `Audio: ${audio.message || 'waiting'}`
-  return audio.mode === 'process' ? 'Audio: Spotify only' : 'Audio: all system audio (not Spotify only)'
+  return audio.mode === 'process' ? 'Audio: Spotify only (experimental)' : 'Audio: all desktop audio (not Spotify only)'
 }
 const ANIMATION_LABELS: Record<Settings['animation'], string> = { low: 'Subtle', medium: 'Standard', high: 'Expressive' }
 const LYRIC_SCALE_LABELS = ['Small', 'Default', 'Large', 'Extra Large']

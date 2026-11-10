@@ -143,7 +143,7 @@ describe('LUMINA Lighting settings', () => {
       bassStrength: 0.55,
       lightingSmoothing: 0.7,
       lightingFps: 60,
-      audioSource: 'auto',
+      audioSource: 'system',
       pauseInFullscreen: true,
       edgeDisplays: 'primary'
     })
@@ -187,15 +187,17 @@ describe('LUMINA Lighting settings', () => {
       lightingSmoothing: DEFAULT_SETTINGS.lightingSmoothing,
       edgeThickness: 0.05,
       lightingFps: 60,
-      audioSource: 'auto',
+      audioSource: 'system',
       edgeDisplays: 'primary',
       edgeSides: { left: false, right: true, top: false, bottom: true }
     })
-    expect(sanitizeSettings({ version: 2, edgeDisplays: 42, lightingFps: 240, audioSource: 'system' })).toMatchObject({
+    expect(sanitizeSettings({ version: 2, edgeDisplays: 42, lightingFps: 240, audioSource: 'spotify' })).toMatchObject({
       edgeDisplays: 42,
       lightingFps: 240,
-      audioSource: 'system'
+      audioSource: 'spotify'
     })
+    // An older 'auto' value becomes the working default.
+    expect(sanitizeSettings({ version: 2, audioSource: 'auto' }).audioSource).toBe('system')
   })
 
   it('merges partial edge-side updates and persists lighting settings', () => {

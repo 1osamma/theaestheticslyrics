@@ -167,10 +167,10 @@ describe('AudioService lifecycle', () => {
 
   it('restarts with the new source when the capture source changes', () => {
     service.setWanted(true)
-    service.setSource('system')
+    service.setSource('spotify')
     expect(workers).toHaveLength(2)
     expect(workers[0]!.posted).toEqual([{ type: 'stop' }])
-    expect(workers[1]!.source).toBe('system')
+    expect(workers[1]!.source).toBe('spotify')
   })
 
   it('terminates a worker that ignores the stop request', () => {

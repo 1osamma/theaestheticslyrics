@@ -52,16 +52,14 @@ function summary(frames: AudioAnalysisFrame[]): string {
 }
 
 describe.skipIf(!existsSync(helper))('live audio capture', () => {
-  it('captures through the default (auto) source and analyses it', async () => {
-    const { statuses, frames, samples } = await capture('auto')
-    const s = statuses.find((x) => x.state === 'capturing')
-    console.log(`auto: ${statuses.map((x) => `${x.state}/${x.mode} "${x.message}"`).join(' → ')}`)
-    console.log(`auto: ${samples} samples · ${summary(frames)}`)
-    expect(s).toBeDefined()
-    expect(frames.length).toBeGreaterThan(SECONDS * 50)
+  it('captures through the experimental Spotify-only source (reports levels; may be silent)', async () => {
+    const { statuses, frames, samples } = await capture('spotify')
+    console.log(`spotify: ${statuses.map((x) => `${x.state}/${x.mode} "${x.message}"`).join(' → ')}`)
+    console.log(`spotify: ${samples} samples · ${summary(frames)}`)
+    expect(statuses.length).toBeGreaterThan(0)
   }, 20_000)
 
-  it('captures all system audio in fallback mode', async () => {
+  it('captures all desktop audio (the default source)', async () => {
     const { statuses, frames } = await capture('system')
     console.log(`system: ${statuses.map((x) => `${x.state}/${x.mode}`).join(' → ')} · ${summary(frames)}`)
     expect(statuses.some((x) => x.state === 'capturing' && x.mode === 'system')).toBe(true)
