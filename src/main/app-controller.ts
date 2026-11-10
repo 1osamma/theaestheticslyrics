@@ -81,6 +81,8 @@ export class AppController {
   /** Started with Windows while "Start Edge Lighting with Windows" is off. */
   private edgeSuppressed = false
   private lastPlayedAt = Number.NEGATIVE_INFINITY
+  /** Last time captured audio was not silent: in system-audio mode, any app playing keeps the light awake. */
+  private lastAudibleAt = Number.NEGATIVE_INFINITY
   private edgeIdleTimer: NodeJS.Timeout | null = null
   private track: TrackInfo | null = null
   private anchor: PlaybackAnchor | null = null
@@ -89,7 +91,8 @@ export class AppController {
   private albumPalette: Palette | null = null
   private albumAmbient: AmbientPalette | null = null
   /** Chromium composites on the GPU; without it the player drops its costlier effects. */
-  private gpu = true
+  private gpu = false
+  private gpuLogged = false
   private health: { ok: boolean; message?: string } = { ok: true }
   private hotkeyOk = false
   private lookupToken = 0
@@ -117,11 +120,10 @@ export class AppController {
       wordLevel: { client: new NeteaseClient(), enabled: () => this.settings.get().wordLevel }
     })
     this.lastWordLevel = this.settings.get().wordLevel
-    const compositing = app.getGPUFeatureStatus().gpu_compositing ?? ''
-    this.gpu = compositing.startsWith('enabled')
-    const features = app.getGPUFeatureStatus()
-    this.log(`gpu: compositing ${compositing || 'unknown'}, webgl2 ${features.webgl2 ?? 'unknown'}, rasterization ${features.rasterization ?? 'unknown'}`)
-    if (!this.gpu) this.log('gpu: no GPU compositing, the player and edge lighting use their lightweight look')
+    // The GPU process reports in a moment after startup; until then the status reads as software.
+    this.updateGpu()
+    app.on('gpu-info-update', this.onGpuInfo)
+    void app.getGPUInfo('basic').then(this.onGpuInfo, () => undefined)
     this.edgeSuppressed = !!this.launch.autostart && !this.settings.get().edgeAtStartup
     this.power = new PowerKeeper(this.log)
     this.stage = new StageController({
@@ -210,6 +212,7 @@ export class AppController {
     this.timers.clear()
     screen.removeListener('display-added', this.onDisplays)
     screen.removeListener('display-removed', this.onDisplays)
+    app.removeListener('gpu-info-update', this.onGpuInfo)
     globalShortcut.unregisterAll()
     this.watcher?.stop()
     if (this.edgeIdleTimer) clearTimeout(this.edgeIdleTimer)
@@ -291,7 +294,25 @@ export class AppController {
 
   // ---------- LUMINA Lighting ----------
 
+  private readonly onGpuInfo = (): void => {
+    if (this.updateGpu() && this.tray) this.refresh()
+  }
+
+  /** Reads GPU compositing; returns true when it changed. */
+  private updateGpu(): boolean {
+    const features = app.getGPUFeatureStatus()
+    const gpu = (features.gpu_compositing ?? '').startsWith('enabled')
+    const changed = gpu !== this.gpu || !this.gpuLogged
+    this.gpu = gpu
+    if (changed) {
+      this.gpuLogged = true
+      this.log(`gpu: compositing ${features.gpu_compositing ?? 'unknown'}, webgl ${features.webgl ?? 'unknown'}${gpu ? '' : ' (lightweight lighting)'}`)
+    }
+    return changed
+  }
+
   private onAudioFrame(frame: AudioAnalysisFrame): void {
+    if (!frame.isSilent) this.lastAudibleAt = Date.now()
     this.stage.sendAudio(frame)
     this.edge.sendAudio(frame)
   }
@@ -326,9 +347,11 @@ export class AppController {
     }
   }
 
+  /** Milliseconds since music last played in the followed player, or was heard in captured audio. */
   private edgeIdleMs(): number {
     if (this.anchor?.playing) return 0
-    return Number.isFinite(this.lastPlayedAt) ? Date.now() - this.lastPlayedAt : Number.POSITIVE_INFINITY
+    const last = Math.max(this.lastPlayedAt, this.lastAudibleAt)
+    return Number.isFinite(last) ? Date.now() - last : Number.POSITIVE_INFINITY
   }
 
   private edgeHeldBy(s: Settings = this.settings.get()): string | null {
@@ -361,14 +384,16 @@ export class AppController {
     this.pushLighting()
   }
 
-  /** Audio runs only while a visible consumer needs it and music plays (or just paused). */
+  /**
+   * Audio runs only while a visible consumer needs it: edge lighting while it shows (it rests a minute
+   * after the music stops), the fullscreen player while music played in the last 15 seconds.
+   */
   private updateAudioWanted(): void {
     const s = this.settings.get()
     const audible = usesAudio(s.lightingMode) && !this.lightingPaused
-    const player = this.stage.lockOpen && s.layout === 'player' && s.fullscreenLighting
+    const player = this.stage.lockOpen && s.layout === 'player' && s.fullscreenLighting && this.edgeIdleMs() < 15_000
     const edge = this.edge.showingCount > 0
-    const recent = this.edgeIdleMs() < 15_000
-    this.audio.setWanted(audible && (player || edge) && recent)
+    this.audio.setWanted(audible && (player || edge))
   }
 
   private updateLighting(patch: Partial<LightingSettings>): void {
@@ -634,8 +659,20 @@ export class AppController {
     const report = {
       windowMs,
       audio: { status: this.audio.status, framesPerSecond: Math.round(((this.audio.framesSeen - frames0) / windowMs) * 10000) / 10 },
-      mainEventLoopDelayMs: { mean: ms(loop.mean), p50: ms(loop.percentile(50)), p99: ms(loop.percentile(99)), max: ms(loop.max) },
-      processes: Object.fromEntries([...byType].map(([type, v]) => [type, { cpuPercent: avg(v.cpu), workingSetMB: avg(v.mem) }])),
+      // Windows timers tick every ~15.6 ms, so the median delay is timer granularity; blocking is what exceeds it.
+      mainEventLoopDelayMs: {
+        p50: ms(loop.percentile(50)),
+        p99: ms(loop.percentile(99)),
+        max: ms(loop.max),
+        blockingP99: ms(Math.max(0, loop.percentile(99) - loop.percentile(50))),
+        blockingMax: ms(Math.max(0, loop.max - loop.percentile(50)))
+      },
+      processes: Object.fromEntries(
+        [...byType].map(([type, v]) => [
+          type,
+          { cpuPercent: avg(v.cpu), workingSetMB: avg(v.mem), workingSetStartMB: avg(v.mem.slice(0, 3)), workingSetEndMB: avg(v.mem.slice(-3)) }
+        ])
+      ),
       stage: await this.stage.perfRead(),
       edge: await this.edge.perfRead(),
       gpu: app.getGPUFeatureStatus()

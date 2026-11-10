@@ -24,11 +24,28 @@ export function targetFps(mode: ShowOn, busy: boolean, cap: FrameRateCap): numbe
 export const VSYNC_GATE_MAX_MS = 20
 
 /**
- * Whether a display refresh at `now` should draw, given the last drawn frame and the target
- * rate. A small tolerance lets a refresh that arrives a hair early still count.
+ * Decides which display refreshes draw, for a target frame rate. Frames follow a schedule (not
+ * "time since the last frame"), so the average rate matches the target even when it does not
+ * divide the refresh rate: 120 FPS on a 180 Hz panel alternates one- and two-refresh steps
+ * instead of falling to 90. A refresh that arrives a hair early still counts, and after a stall
+ * the schedule restarts rather than bursting to catch up.
  */
-export function frameDue(lastFrame: number, now: number, fps: number): boolean {
-  if (!Number.isFinite(fps)) return true
-  const interval = 1000 / fps
-  return now - lastFrame >= interval - Math.min(2, interval * 0.15)
+export class FrameGate {
+  private next = Number.NEGATIVE_INFINITY
+
+  due(now: number, fps: number): boolean {
+    if (!Number.isFinite(fps) || fps <= 0) {
+      this.next = Number.NEGATIVE_INFINITY
+      return true
+    }
+    const interval = 1000 / fps
+    const tolerance = Math.min(2, interval * 0.15)
+    if (now < this.next - tolerance) return false
+    this.next = now - this.next > interval ? now + interval : this.next + interval
+    return true
+  }
+
+  reset(): void {
+    this.next = Number.NEGATIVE_INFINITY
+  }
 }

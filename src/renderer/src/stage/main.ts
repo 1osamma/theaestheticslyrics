@@ -7,7 +7,7 @@ import type { Artwork, FrameRateCap, Palette, ShowOn, StyleId } from '@shared/ty
 import { installPerf } from '../lighting/perf'
 import { createPlayerView, type PlayerView } from '../player/player-view'
 import { SongClock } from './clock'
-import { VSYNC_GATE_MAX_MS, frameDue, targetFps } from './frame-gate'
+import { FrameGate, VSYNC_GATE_MAX_MS, targetFps } from './frame-gate'
 import { LockClock } from './lock-clock'
 import { buildModel, msUntilNextWord, type LyricsModel } from './model'
 import { createStyle } from './styles/registry'
@@ -26,7 +26,7 @@ let latestArtwork: Artwork | null = null
 let watchOnly = false
 let lastState: StageState | null = null
 let frameCap: FrameRateCap = 0
-let lastFrameAt = Number.NEGATIVE_INFINITY
+const gate = new FrameGate()
 let model: LyricsModel | null = null
 let lyricsSignature = ''
 let palette: Palette = { ...DEFAULT_PALETTE }
@@ -120,7 +120,6 @@ function loop(frameAt: number): void {
     loopRunning = false
     return
   }
-  lastFrameAt = frameAt
   const started = performance.now()
   const songMs = clock.now(started, Date.now())
   const busy = render(songMs, started)
@@ -131,15 +130,15 @@ function loop(frameAt: number): void {
   if (wanted > fps) fps = frameCap > 0 ? Math.min(wanted, frameCap) : wanted
   if (1000 / fps <= VSYNC_GATE_MAX_MS) {
     // Full rate, or a frame-rate limit: draw on display refreshes, skipping the ones that come too soon.
-    const gate = (at: number): void => {
+    const check = (at: number): void => {
       if (loopShouldStop()) {
         loopRunning = false
         return
       }
-      if (frameDue(lastFrameAt, at, fps)) loop(at)
-      else requestAnimationFrame(gate)
+      if (gate.due(at, fps)) loop(at)
+      else requestAnimationFrame(check)
     }
-    requestAnimationFrame(gate)
+    requestAnimationFrame(check)
     return
   }
   // Wait out most of the frame budget, then align the next frame to vsync — but never

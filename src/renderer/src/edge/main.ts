@@ -7,7 +7,7 @@ import { edgeWeights } from '../lighting/edge-weights'
 import { copyLight, sameLight } from '../lighting/frame-utils'
 import { createLightLayer } from '../lighting/light-layer'
 import { installPerf } from '../lighting/perf'
-import { frameDue } from '../stage/frame-gate'
+import { FrameGate } from '../stage/frame-gate'
 
 /**
  * Desktop edge lighting page: transparent, never interactive. Draws the shared lighting engine's
@@ -23,7 +23,7 @@ let config: LightingConfig | null = null
 let engine: LightingEngine | null = null
 let lastAudio: AudioAnalysisFrame | null = null
 let drawn: LightFrame | null = null
-let lastDraw = Number.NEGATIVE_INFINITY
+const gate = new FrameGate()
 let unchanged = 0
 let running = false
 let snapshotMode = false
@@ -51,9 +51,8 @@ function loop(at: number): void {
     running = false
     return
   }
-  if (frameDue(lastDraw, at, config.fps)) {
+  if (gate.due(at, config.fps)) {
     const started = performance.now()
-    lastDraw = at
     const frame = engine.sample(started)
     if (sameLight(drawn, frame)) {
       unchanged++

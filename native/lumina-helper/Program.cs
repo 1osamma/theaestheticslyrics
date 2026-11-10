@@ -131,8 +131,12 @@ namespace Lumina.Helper
             if (!Native.GetMonitorInfoW(monitor, ref mi)) return Json(false, quns, null, pid);
             var m = mi.rcMonitor;
             bool covers = wr.Left <= m.Left && wr.Top <= m.Top && wr.Right >= m.Right && wr.Bottom >= m.Bottom;
+            // A maximized window (title bar, frame overhanging the monitor) is not full screen; browsers in
+            // F11, video players and borderless games drop WS_CAPTION when they take the whole monitor.
+            long style = Native.GetWindowLongPtr(fg, -16 /* GWL_STYLE */).ToInt64();
+            bool captioned = (style & 0x00C00000L) == 0x00C00000L;
             // QUNS_RUNNING_D3D_FULL_SCREEN: an exclusive full-screen game, whatever its window rect says.
-            bool active = covers || quns == 3;
+            bool active = (covers && !captioned) || quns == 3;
             return Json(active, quns, active ? (RECT?)m : null, pid);
         }
 

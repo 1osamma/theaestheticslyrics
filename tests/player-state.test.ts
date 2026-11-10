@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { approach } from '../src/renderer/src/ambient/drive'
 import { CHROME_HIDE_MS, ChromeFader } from '../src/renderer/src/player/chrome-fader'
 import { formatTime, progressOf, sourceLabel, splitTitle } from '../src/renderer/src/player/format'
-import { frameDue, targetFps } from '../src/renderer/src/stage/frame-gate'
+import { FrameGate, targetFps } from '../src/renderer/src/stage/frame-gate'
 
 describe('formatTime', () => {
   it('formats song time like a player', () => {
@@ -84,16 +84,33 @@ describe('frame rate policy', () => {
     expect(targetFps('always', false, 30)).toBe(15)
   })
 
-  it('skips display refreshes that come too soon for the target rate', () => {
-    // 240 Hz refreshes every ~4.17 ms; a 120 FPS limit draws every other one.
-    expect(frameDue(0, 4.17, 120)).toBe(false)
-    expect(frameDue(0, 8.33, 120)).toBe(true)
-    // 60 FPS on 240 Hz draws every fourth refresh.
-    expect(frameDue(0, 12.5, 60)).toBe(false)
-    expect(frameDue(0, 16.67, 60)).toBe(true)
-    // A refresh that arrives a hair early still counts.
-    expect(frameDue(0, 16.2, 60)).toBe(true)
-    expect(frameDue(0, 0.1, Number.POSITIVE_INFINITY)).toBe(true)
+  /** Frames drawn in one second of display refreshes at `hz` for a target `fps`. */
+  function framesPerSecond(hz: number, fps: number): number {
+    const gate = new FrameGate()
+    let drawn = 0
+    for (let t = 0; t < 1000; t += 1000 / hz) if (gate.due(t, fps)) drawn++
+    return drawn
+  }
+
+  it('hits the target rate on average, even when it does not divide the refresh rate', () => {
+    // ±1: the first refresh at t = 0 always draws.
+    const near = (hz: number, fps: number, expected: number): void =>
+      expect(Math.abs(framesPerSecond(hz, fps) - expected)).toBeLessThanOrEqual(1)
+    near(240, 120, 120)
+    near(240, 60, 60)
+    near(240, 30, 30)
+    near(179.9, 120, 120) // a 180 Hz panel: not 90
+    near(179.9, 60, 60)
+    near(144, 240, 144) // never more than the display can show
+    near(60, Number.POSITIVE_INFINITY, 60)
+  })
+
+  it('restarts its schedule after a stall instead of bursting to catch up', () => {
+    const gate = new FrameGate()
+    expect(gate.due(0, 60)).toBe(true)
+    expect(gate.due(500, 60)).toBe(true) // a 500 ms stall
+    expect(gate.due(504, 60)).toBe(false)
+    expect(gate.due(516.7, 60)).toBe(true)
   })
 })
 

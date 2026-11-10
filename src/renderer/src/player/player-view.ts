@@ -6,7 +6,7 @@ import { copyLight, sameLight } from '../lighting/frame-utils'
 import { createLightLayer } from '../lighting/light-layer'
 import { edgeWeights } from '../lighting/edge-weights'
 import type { PerfCounters } from '../lighting/perf'
-import { frameDue } from '../stage/frame-gate'
+import { FrameGate } from '../stage/frame-gate'
 import type { LyricsModel } from '../stage/model'
 import { setStyle } from '../stage/style-cache'
 import type { FrameInfo, StageStyle } from '../stage/styles/types'
@@ -146,7 +146,7 @@ export function createPlayerView(): PlayerView {
   let engine: LightingEngine | null = null
   let pendingColors: string[] | null = null
   let lastAudio: AudioAnalysisFrame | null = null
-  let lastLightAt = Number.NEGATIVE_INFINITY
+  const lightGate = new FrameGate()
   let drawn: LightFrame | null = null
   let focus: [number, number] = [0.27, 0.45]
   let focusFor = ''
@@ -245,8 +245,7 @@ export function createPlayerView(): PlayerView {
       }
       frame = engine.sample(settleClock)
     } else {
-      if (!frameDue(lastLightAt, wallMs, lighting.fps)) return
-      lastLightAt = wallMs
+      if (!lightGate.due(wallMs, lighting.fps)) return
       frame = engine.sample(wallMs)
     }
     if (!settle && sameLight(drawn, frame)) return
