@@ -170,7 +170,7 @@ const source = select<AudioSource>(
   'Audio Capture Source',
   (['system', 'spotify'] as AudioSource[]).map((v) => ({ value: v, text: AUDIO_SOURCE_LABELS[v] })),
   (v) => send('audioSource', { audioSource: v }, true),
-  'All desktop audio reacts to everything playing on this PC, not only Spotify. Spotify-only capture is experimental.'
+  'All desktop audio reacts to everything playing on this PC, not only Spotify. Spotify only ignores other apps.'
 )
 
 root.append(

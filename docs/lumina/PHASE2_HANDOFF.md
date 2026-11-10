@@ -1,7 +1,7 @@
 # LUMINA Phase 2 handoff
 
-State at handoff: branch **`lumina/phase-2`** (local only, **not pushed**), latest commit **`7252eba`**,
-working tree clean. It is based on `lumina/phase-1` @ `6fb7f00`, which is pushed to
+State at handoff: branch **`lumina/phase-2`** (local only, **not pushed**). The latest commit is the
+one that adds the Spotify-only capture fix (run `git log --oneline -1`), and the working tree is clean. It is based on `lumina/phase-1` @ `6fb7f00`, which is pushed to
 `origin` = `https://github.com/1osamma/theaestheticslyrics.git`. `main` is untouched.
 Nothing is merged or pushed, and no pull request exists.
 
@@ -15,14 +15,17 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
 | `d799d99` | WASAPI capture helper (C#) and real-time audio analysis (worker thread, FFT) |
 | `f624444` | Hybrid lighting engine, WebGL2 renderer, fullscreen lighting, desktop edge lighting, settings v2, tray, Lighting Settings window |
 | `94b8dd5` | Fixes from live tests: frame pacing (`FrameGate`), GPU status timing, maximized windows ≠ full screen, audible capture keeps edge lighting awake, perf report |
-| `7252eba` | System loopback is the default audio source; Spotify-only is experimental; edge windows no longer block quit; docs |
+| `7252eba` | System loopback is the default audio source; edge windows no longer block quit; docs |
+| `39a98b9`, `bf27b25`, `8ca0cf4` | This handoff and its updates |
+| latest | **Spotify-only capture fixed**: stream setup moved into `ActivateCompleted`, as in Microsoft's sample; verified to exclude other apps |
 
 ## Implemented and verified
 
 | Feature | Status | How it was verified |
 |---|---|---|
 | Native helper `resources/lumina-helper.exe` (built from `native/lumina-helper/*.cs` with .NET Framework `csc.exe`; no SDK, runs as the user) | ✔ | Builds clean; `npm run check:audio` |
-| **System (endpoint) loopback capture = default source**, labelled "All desktop audio (not Spotify only)" | ✔ | Live: real music analysed (bass ≈ 0.75, about 14 beat pulses per 6 s), 60 frames/s |
+| **System (endpoint) loopback capture = default source** (kept as default at the user's request), labelled "All desktop audio (not Spotify only)" | ✔ | Live: real music analysed (bass ≈ 0.75, about 14 beat pulses per 6 s), 60 frames/s |
+| **Spotify-only (process loopback) capture**, optional source "Spotify only (process loopback, ignores other apps)" | ✔ | Live, Spotify playing: follows Spotify's level (−68.5 dBFS vs −67.2 system); another app's 40 Hz tone was present in system audio (−66.1 dBFS) and absent from Spotify-only (−110.3 dBFS) |
 | Analysis: FFT 2048, bass/mids/treble, adaptive normalisation, attack/release, flux transients, beat-like pulse, silence | ✔ | 20 synthetic-signal tests and live levels |
 | `AudioService` lifecycle: on demand, 4 s stop delay, backoff restart, frame validation, helper released on stop and quit | ✔ | 13 unit tests; live stop/restart when a full-screen app appeared; no leftover helper after quit |
 | `LightingEngine` (shared): album palette = colour, audio = motion; modes Off / Static / Ambient / Bass / Hybrid; smoothing, sensitivity, reduced motion | ✔ | 16 unit tests |
@@ -36,9 +39,11 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
 
 ## Not working or not verified
 
-1. **Spotify-only capture (process loopback) delivers silence on this PC.** It is implemented and
-   selectable as "Spotify only (experimental)". The diagnostic pass is complete; **do not repeat it**.
-   Evidence:
+1. **Resolved: Spotify-only capture used to deliver silence.** The cause was where the stream was set
+   up: Microsoft's sample calls `Initialize`, `GetService` and `SetEventHandle` inside
+   `ActivateCompleted`, and the helper called them afterwards. Moving them into the callback fixed it
+   (see the verification row above and architecture.md, "Spotify-only capture: status"). **Do not
+   reopen this investigation.** The evidence from before the fix, kept for the record:
    - Activation parameters are honoured: an invalid type returns `E_INVALIDARG`.
    - About 100 packets per second arrive, never flagged silent, but hold only dither (−99.7 dBFS).
    - The result is the same for the root process tree and each Spotify process on its own; for
@@ -46,12 +51,12 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
    - Exclude mode, even excluding Explorer, is equally silent, while endpoint loopback of the same
      device hears the music.
    - Microphone privacy is Allow.
-   - **The only untried difference from Microsoft's ApplicationLoopback sample:** the sample calls
-     `IAudioClient::Initialize` (and `GetService`, `SetEventHandle`) **inside**
-     `ActivateCompleted`; LUMINA calls them after the callback signals.
-   - The user confirmed a **standard output device**: no Sonar, Nahimic, Dolby, Voicemeeter or other
-     virtual or enhanced device. That makes the `Initialize`-in-callback difference the leading
-     suspect; driver-level audio effects remain a distant possibility.
+   - The user has a **standard output device** (no virtual or enhanced audio software), which pointed
+     at the callback difference.
+   - **Open follow-up: quiet playback.** Both sources capture after the app's own volume. During the
+     fix test Spotify sat at about −68 dBFS, below the analysis silence threshold (−60 dBFS RMS, with
+     a −72 dBFS band floor in `src/main/audio/analysis.ts`), so the light stayed dark. Consider lower
+     or adaptive thresholds, and keep the synthetic tests in `tests/audio-analysis.test.ts` passing.
 2. **Resolved, not a bug:** during the Phase 2 test runs Spotify started playing a few seconds after
    the lyrics screen opened and paused after the app quit. The user confirmed they were pressing
    play and pause themselves. Nothing to investigate.
@@ -75,7 +80,7 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
 | `npm test` | **301/301** tests, 32 files |
 | `npx electron-vite build` | Pass (worker bundled as `out/main/chunks/worker-*.js`) |
 | `npm run snapshot -- --snapshot-size=2560x1440` | 21 PNGs: 4 styles × 3, 7 player shots, `edge-lighting.png` and `edge-lighting-preview.png` |
-| `npm run check:audio` | System source captures and analyses; Spotify source captures silence (above) |
+| `npm run check:audio` | Both sources capture and analyse; Spotify-only verified to exclude other apps |
 | Edge overlay, WebGL, 60 target, 1440p | 59.9–60.0 FPS, p99 16.8–16.9 ms, script about 0.03 ms per frame, no long tasks |
 | Player, lighting only, 240 target | 180 FPS (the panel's limit), p99 5.8 ms, GPU-3D 0.33% average |
 | Player with Spotify playing, 60 / 120 target | Light 60.0 / 119.0 FPS; page 140–157 FPS; GPU-3D 9.1% / 7.7% average |
@@ -112,11 +117,13 @@ All measurements were taken with live **system** audio, in a throwaway profile (
 
 ## Exact next steps
 
-1. (Answered: the user has a standard output device, no virtual or enhanced audio software.)
-2. **Optionally**, one targeted try at Spotify-only capture, now the most promising lead: move `Initialize`, `GetService` and
-   `SetEventHandle` into `ActivationHandler.ActivateCompleted` in `native/lumina-helper/Capture.cs`,
-   mirroring Microsoft's sample, then run `npm run check:audio` **while Spotify plays**. If it is
-   still silent, stop: system loopback stays the default.
+1. **Quiet playback:** make the analysis respond at low app volume (about −70 dBFS). Lower or adapt
+   `silenceDb` / `noiseFloorDb` in `src/main/audio/analysis.ts`, adjust `tests/audio-analysis.test.ts`
+   as needed, and confirm with `npm run check:audio` while Spotify plays quietly.
+2. Ask the user whether **Spotify only** should become the default source. They asked to keep All
+   desktop audio as the default for now. Changing it means editing `DEFAULT_SETTINGS.audioSource` in
+   `src/main/settings.ts`, its test, and the docs. The helper also supports `auto` (Spotify while it
+   runs, otherwise system audio) if a fallback default is wanted.
 3. Have the user review the Lighting Settings window (`npm run dev`, tray → LUMINA Lighting →
    Lighting Settings…) and the edge glow on their desktop; tune defaults if needed.
 4. Live checks not yet done: Bluetooth or USB device switching, Spotify close/restart during

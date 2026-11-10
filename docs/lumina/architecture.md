@@ -97,7 +97,7 @@ the desktop edge-lighting overlay.
 
 ```
 default output device ────┐ WASAPI endpoint loopback: all desktop audio (default source)
-Spotify.exe process tree ─┤ WASAPI process loopback: Spotify only (experimental, silent on the dev PC)
+Spotify.exe process tree ─┤ WASAPI process loopback: Spotify only, other apps excluded (optional source)
                           ▼
 resources/lumina-helper.exe  (C#, .NET Framework 4.x, runs as the user)
    mono float32 PCM + status, length-prefixed packets on stdout
@@ -119,7 +119,7 @@ WebGL2 shader / CSS fallback           WebGL2 shader / CSS fallback
 | Option | Verdict |
 |---|---|
 | **WASAPI endpoint loopback** of the default render device ✔ **(default source)** | Works on every Windows version without elevation, and is verified live on the target PC. It captures **everything** playing on that device, not only Spotify, and the UI says so wherever it is active: "All desktop audio (not Spotify only)". |
-| **WASAPI process loopback** (`ActivateAudioInterfaceAsync` with `VAD\Process_Loopback` and `INCLUDE_TARGET_PROCESS_TREE`, build 20348+) ⚠ experimental | Implemented and selectable ("Spotify only (experimental)"). It would capture only Spotify's process tree (the helper finds the root `Spotify.exe` and follows restarts). On the development PC it delivers only silence; see [Spotify-only capture](#spotify-only-capture-status). |
+| **WASAPI process loopback** (`ActivateAudioInterfaceAsync` with `VAD\Process_Loopback` and `INCLUDE_TARGET_PROCESS_TREE`, build 20348+) ✔ optional source | Selectable as "Spotify only". Captures only Spotify's process tree (the helper finds the root `Spotify.exe` and follows restarts), without elevation. Verified to exclude other apps; see [Spotify-only capture](#spotify-only-capture-status). |
 | Native Node addon (N-API) | Needs a C++ toolchain on every build machine and an ABI-specific rebuild for each Electron upgrade. Rejected. |
 | Third-party npm capture packages | Not evaluated in depth: any would add a prebuilt native binary per Electron ABI, which the helper avoids. |
 | .NET 6+ sidecar | Needs the .NET runtime on the user's PC (or ~70 MB self-contained). Rejected. |
@@ -131,11 +131,10 @@ and no downloads, the result needs no runtime install, and it runs without Admin
 automatically (`pre*` scripts), the CI workflow compiles it, and `npm run package` ships it next to
 the asar, as it does with `smtc-bridge.ps1`.
 
-**Audio Capture Source** (settings): **All desktop audio** (the default) or **Spotify only
-(experimental)**. The source is one setting passed to the helper (`capture --source system|spotify`).
-Making Spotify-only the default later means changing a default, not the architecture. The helper
-also still understands `auto` (Spotify when possible, otherwise system audio); the app doesn't
-offer it until process loopback works.
+**Audio Capture Source** (settings): **All desktop audio** (the default, at the user's request) or
+**Spotify only**. The source is one setting passed to the helper (`capture --source system|spotify`),
+so making Spotify-only the default means changing a default, not the architecture. The helper also
+understands `auto` (Spotify while it runs, otherwise system audio), which the app doesn't offer yet.
 
 #### Spotify-only capture: status
 
@@ -143,10 +142,25 @@ offer it until process loopback works.
 - **Same:** the activation parameters (`AUDIOCLIENT_ACTIVATION_PARAMS` in a `VT_BLOB` PROPVARIANT),
   an agile completion handler, the stream flags (`LOOPBACK | EVENTCALLBACK`), the event-driven
   `GetNextPacketSize` / `GetBuffer` / `ReleaseBuffer` loop, and the supported Windows build (26200 ≥ 20348).
-- **One difference not tried:** the sample calls `Initialize` inside the completion callback; the
-  helper calls it after the callback signals.
+- **The difference that mattered:** the sample calls `Initialize`, `GetService` and `SetEventHandle`
+  inside `ActivateCompleted`. The helper used to call them after the callback signalled, and then got
+  only silence. It now does the same as the sample (`ActivationHandler` in `native/lumina-helper/Capture.cs`).
 
-**Evidence from one diagnostic pass, with Spotify playing:**
+**After the fix, with Spotify playing**, the inaudible 40 Hz tone from `npm run fake-player` acted
+as a second app:
+
+| Source | Overall level | 40 Hz tone |
+|---|---|---|
+| Spotify only, fake player off | −69.9 dBFS | −107.0 dBFS |
+| System audio, fake player off | −69.8 dBFS | −100.4 dBFS |
+| Spotify only, fake player on | −67.5 dBFS | **−110.3 dBFS (absent)** |
+| System audio, fake player on | −65.3 dBFS | **−66.1 dBFS (present)** |
+
+Spotify-only follows Spotify's real level, which matches system audio when nothing else plays, and
+leaves the other app out. Spotify's volume was low during this test (about −68 dBFS), below the
+analysis silence threshold of −60 dBFS. See the note on quiet playback below.
+
+**Before the fix (kept for the record), one diagnostic pass with Spotify playing:**
 - Windows honours the activation parameters: an invalid activation type returns `E_INVALIDARG`.
 - About 100 packets per second arrive and are never flagged silent, but they hold only dither (−99.7 dBFS).
 - The result is the same for:
@@ -158,9 +172,13 @@ offer it until process loopback works.
   silent, while endpoint loopback of the same device hears the music at about −18 dBFS.
 - Microphone privacy allows desktop apps, so that's not the cause.
 
-So the process-loopback device isn't being fed on this PC at all. The likely causes are its audio
-environment (driver, audio effects or a virtual output device) or the untried `Initialize`-in-callback
-difference. Until that is solved, system loopback is the source.
+The output device is a standard one (no virtual or enhanced audio software), which pointed to the
+callback difference. That turned out to be the cause.
+
+**Quiet playback:** analysis treats RMS below −60 dBFS as silence and scales band levels against a
+−72 dBFS floor. Both sources capture after the app's own volume, so very low Spotify or per-app
+volume (as in the test above) reads as silence and the light stays dark. Lowering those thresholds,
+or adapting them, is an open follow-up.
 
 **Lifecycle:**
 - `AudioService` starts the worker (and the helper) only while a **visible** consumer needs audio:
@@ -270,7 +288,7 @@ follows: `ambient: false` becomes Fullscreen Lighting off, and Low/Medium/High b
 | Edges | `edgeSides` | left, right, bottom |
 | Edge Glow in the Player | `playerEdgeGlow` | Off |
 | Render FPS | `lightingFps` 30 / 60 / 120 / 240 | 60 |
-| Audio Capture Source | `audioSource` system / spotify (experimental) | All desktop audio (`system`) |
+| Audio Capture Source | `audioSource` system / spotify | All desktop audio (`system`) |
 | Monitor Selection | `edgeDisplays` primary / all / display id | Primary |
 | Pause During Fullscreen Games | `pauseInFullscreen` | On |
 | Start Edge Lighting with Windows | `edgeAtStartup` | On |
@@ -328,7 +346,7 @@ render the active-line fill more cheaply.
 
 | Scenario | Result |
 |---|---|
-| Spotify not running / closed | The default desktop-audio source doesn't depend on Spotify. The experimental Spotify source waits and re-checks every second. Not exercised by closing Spotify during this work. |
+| Spotify not running / closed | The default desktop-audio source doesn't depend on Spotify. The Spotify-only source waits and re-checks every second. Not exercised by closing Spotify during this work. |
 | Pause / resume, quiet passages | Analysis reports silence after 250 ms. The light settles to 35% of brightness and stays dark. Edge lighting rests 60 s after music stops (no playback and no audible capture). Unit-tested; pauses observed live. |
 | Track changes | The palette crossfades over 1.6 s from what is on screen. Unit-tested; seen live with Spotify. |
 | Output device change (USB, Bluetooth) | The helper polls the default device every second and reopens it; an invalidated device ends the stream and it reopens. Not exercised with real device switching. |

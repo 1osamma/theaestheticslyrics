@@ -52,7 +52,7 @@ function summary(frames: AudioAnalysisFrame[]): string {
 }
 
 describe.skipIf(!existsSync(helper))('live audio capture', () => {
-  it('captures through the experimental Spotify-only source (reports levels; may be silent)', async () => {
+  it('captures through the Spotify-only source (reports levels; silent while Spotify is paused)', async () => {
     const { statuses, frames, samples } = await capture('spotify')
     console.log(`spotify: ${statuses.map((x) => `${x.state}/${x.mode} "${x.message}"`).join(' → ')}`)
     console.log(`spotify: ${samples} samples · ${summary(frames)}`)

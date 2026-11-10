@@ -46,14 +46,75 @@ namespace Lumina.Helper
         }
     }
 
-    /// <summary>Completion handler for ActivateAudioInterfaceAsync (must be agile).</summary>
+    /// <summary>
+    /// Completion handler for ActivateAudioInterfaceAsync (must be agile). Like Microsoft's
+    /// ApplicationLoopback sample, it initializes the stream, gets the capture client and sets the
+    /// event handle inside ActivateCompleted, on the thread Windows calls it on.
+    /// </summary>
     [ClassInterface(ClassInterfaceType.None)]
     internal sealed class ActivationHandler : IActivateAudioInterfaceCompletionHandler, IAgileObject
     {
         public readonly ManualResetEvent Done = new ManualResetEvent(false);
+        public readonly AutoResetEvent Signal = new AutoResetEvent(false);
+        private readonly IntPtr format;
+        private readonly uint flags;
+        public IAudioClient Client;
+        public IAudioCaptureClient Capture;
+        public string Error;
+
+        public ActivationHandler(IntPtr format, uint flags)
+        {
+            this.format = format;
+            this.flags = flags;
+        }
+
         public void ActivateCompleted(IActivateAudioInterfaceAsyncOperation operation)
         {
-            Done.Set();
+            try
+            {
+                int activateHr;
+                object activated;
+                int hr = operation.GetActivateResult(out activateHr, out activated);
+                if (hr != Hr.S_OK || activateHr != Hr.S_OK || activated == null)
+                {
+                    Error = "process loopback activation failed (0x" + (hr != 0 ? hr : activateHr).ToString("X8") + ")";
+                    return;
+                }
+                var client = (IAudioClient)activated;
+                hr = client.Initialize(AudioConst.AUDCLNT_SHAREMODE_SHARED, flags, 200000, 0, format, IntPtr.Zero);
+                if (hr != Hr.S_OK)
+                {
+                    Error = "process loopback initialize failed (0x" + hr.ToString("X8") + ")";
+                    Marshal.ReleaseComObject(client);
+                    return;
+                }
+                object service;
+                hr = client.GetService(AudioConst.IID_IAudioCaptureClient, out service);
+                if (hr != Hr.S_OK)
+                {
+                    Error = "GetService failed (0x" + hr.ToString("X8") + ")";
+                    Marshal.ReleaseComObject(client);
+                    return;
+                }
+                hr = client.SetEventHandle(Signal.SafeWaitHandle.DangerousGetHandle());
+                if (hr != Hr.S_OK)
+                {
+                    Error = "SetEventHandle failed (0x" + hr.ToString("X8") + ")";
+                    Marshal.ReleaseComObject(service);
+                    Marshal.ReleaseComObject(client);
+                    return;
+                }
+                Client = client;
+                Capture = (IAudioCaptureClient)service;
+            }
+            catch (Exception e)
+            {
+                Error = "process loopback setup failed: " + e.Message;
+            }
+            finally
+            {
+                Done.Set();
+            }
         }
     }
 
@@ -228,6 +289,7 @@ namespace Lumina.Helper
         {
             IntPtr paramsPtr = IntPtr.Zero, propPtr = IntPtr.Zero, formatPtr = IntPtr.Zero;
             IAudioClient client = null;
+            ActivationHandler handler = null;
             try
             {
                 // AUDIOCLIENT_ACTIVATION_PARAMS { PROCESS_LOOPBACK, { pid, INCLUDE_TARGET_PROCESS_TREE } }
@@ -242,19 +304,6 @@ namespace Lumina.Helper
                 Marshal.WriteInt32(propPtr, 8, 12);
                 Marshal.WriteIntPtr(propPtr, 16, paramsPtr);
 
-                var handler = new ActivationHandler();
-                IActivateAudioInterfaceAsyncOperation op;
-                int hr = Native.ActivateAudioInterfaceAsync(AudioConst.VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-                    AudioConst.IID_IAudioClient, propPtr, handler, out op);
-                if (hr != Hr.S_OK) return "process loopback unavailable (0x" + hr.ToString("X8") + ")";
-                if (!handler.Done.WaitOne(5000)) return "process loopback activation timed out";
-                int activateHr;
-                object activated;
-                hr = op.GetActivateResult(out activateHr, out activated);
-                if (hr != Hr.S_OK || activateHr != Hr.S_OK || activated == null)
-                    return "process loopback activation failed (0x" + (hr != 0 ? hr : activateHr).ToString("X8") + ")";
-                client = (IAudioClient)activated;
-
                 // Process loopback has no mix format: ask for 16-bit stereo and let Windows convert.
                 formatPtr = Marshal.AllocHGlobal(18);
                 Marshal.WriteInt16(formatPtr, 0, (short)AudioConst.WAVE_FORMAT_PCM);
@@ -266,18 +315,26 @@ namespace Lumina.Helper
                 Marshal.WriteInt16(formatPtr, 16, 0);
                 var format = StreamFormat.FromPointer(formatPtr);
                 // Same flags as Microsoft's ApplicationLoopback sample: the process-loopback virtual device
-                // converts to the requested format itself. (On the development PC this path still delivers
-                // only silence; see docs/lumina/architecture.md, "Spotify-only capture".)
+                // converts to the requested format itself.
                 uint flags = AudioConst.AUDCLNT_STREAMFLAGS_LOOPBACK | AudioConst.AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-                hr = client.Initialize(AudioConst.AUDCLNT_SHAREMODE_SHARED, flags, 200000, 0, formatPtr, IntPtr.Zero);
-                if (hr != Hr.S_OK) return "process loopback initialize failed (0x" + hr.ToString("X8") + ")";
+
+                handler = new ActivationHandler(formatPtr, flags);
+                IActivateAudioInterfaceAsyncOperation op;
+                int hr = Native.ActivateAudioInterfaceAsync(AudioConst.VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+                    AudioConst.IID_IAudioClient, propPtr, handler, out op);
+                if (hr != Hr.S_OK) return "process loopback unavailable (0x" + hr.ToString("X8") + ")";
+                if (!handler.Done.WaitOne(5000)) return "process loopback activation timed out";
+                if (handler.Error != null) return handler.Error;
+                client = handler.Client;
 
                 Report("capturing", "process", pid, format.SampleRate, "Capturing Spotify only");
-                string end = Pump(client, format, true, delegate
+                // The stream owns the capture client and event from here on and releases them when it ends.
+                var capture = handler.Capture;
+                handler.Capture = null;
+                return Stream(client, capture, handler.Signal, format, true, delegate
                 {
                     return SpotifyProcess.FindRoot() == pid;
                 });
-                return end;
             }
             catch (Exception e)
             {
@@ -285,6 +342,7 @@ namespace Lumina.Helper
             }
             finally
             {
+                if (handler != null && handler.Capture != null) Marshal.ReleaseComObject(handler.Capture);
                 if (client != null) Marshal.ReleaseComObject(client);
                 if (formatPtr != IntPtr.Zero) Marshal.FreeHGlobal(formatPtr);
                 if (propPtr != IntPtr.Zero) Marshal.FreeHGlobal(propPtr);
@@ -381,15 +439,22 @@ namespace Lumina.Helper
             object service;
             int hr = client.GetService(AudioConst.IID_IAudioCaptureClient, out service);
             if (hr != Hr.S_OK) return "GetService failed (0x" + hr.ToString("X8") + ")";
-            var capture = (IAudioCaptureClient)service;
             var signal = new AutoResetEvent(false);
+            if (useEvent)
+            {
+                hr = client.SetEventHandle(signal.SafeWaitHandle.DangerousGetHandle());
+                if (hr != Hr.S_OK) useEvent = false;
+            }
+            return Stream(client, (IAudioCaptureClient)service, signal, format, useEvent, stillValid);
+        }
+
+        /// <summary>The read loop for an initialized client; releases `capture` and `signal` when it ends.</summary>
+        private string Stream(IAudioClient client, IAudioCaptureClient capture, AutoResetEvent signal, StreamFormat format,
+            bool useEvent, StillValid stillValid)
+        {
+            int hr;
             try
             {
-                if (useEvent)
-                {
-                    hr = client.SetEventHandle(signal.SafeWaitHandle.DangerousGetHandle());
-                    if (hr != Hr.S_OK) useEvent = false;
-                }
                 hr = client.Start();
                 if (hr != Hr.S_OK) return "Start failed (0x" + hr.ToString("X8") + ")";
                 var clock = Stopwatch.StartNew();

@@ -79,7 +79,7 @@ all of it off at once.
   music stops.
 - **Audio:** by default the lighting reacts to **all desktop audio** (Windows loopback of your
   output device), so other apps' sound moves it too, and the tray and settings say so.
-  **Spotify only** is available as an experimental source. Nothing is recorded or saved, and no
+  Choose **Spotify only** in Lighting Settings to ignore other apps. Nothing is recorded or saved, and no
   Spotify account is needed.
 - `npm run check:audio` shows live levels from your PC (play something first).
 

@@ -88,13 +88,13 @@ export interface LightFrame {
 /**
  * Which audio drives the light. `system` (the default) is WASAPI loopback of the default output
  * device: all desktop audio, not only Spotify. `spotify` is process loopback of Spotify's process
- * tree; it is experimental because it delivers only silence on the development PC.
+ * tree: only Spotify's audio, other apps excluded (verified on the development PC).
  */
 export type AudioSource = 'system' | 'spotify'
 
 export const AUDIO_SOURCE_LABELS: Record<AudioSource, string> = {
   system: 'All desktop audio (system loopback, not Spotify only)',
-  spotify: 'Spotify only (experimental, process loopback)'
+  spotify: 'Spotify only (process loopback, ignores other apps)'
 }
 
 /** Which monitors get desktop edge lighting: the primary one, every one, or one Electron display id. */
