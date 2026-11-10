@@ -49,8 +49,9 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
    - **The only untried difference from Microsoft's ApplicationLoopback sample:** the sample calls
      `IAudioClient::Initialize` (and `GetService`, `SetEventHandle`) **inside**
      `ActivateCompleted`; LUMINA calls them after the callback signals.
-   - The other likely cause is the PC's audio environment (driver, audio effects, a virtual output
-     device such as Sonar or Nahimic). Worth checking with the user.
+   - The user confirmed a **standard output device**: no Sonar, Nahimic, Dolby, Voicemeeter or other
+     virtual or enhanced device. That makes the `Initialize`-in-callback difference the leading
+     suspect; driver-level audio effects remain a distant possibility.
 2. **Resolved, not a bug:** during the Phase 2 test runs Spotify started playing a few seconds after
    the lyrics screen opened and paused after the app quit. The user confirmed they were pressing
    play and pause themselves. Nothing to investigate.
@@ -111,9 +112,8 @@ All measurements were taken with live **system** audio, in a throwaway profile (
 
 ## Exact next steps
 
-1. **Ask the user** whether they use a virtual or enhanced audio device (Sonar, Nahimic, Dolby,
-   Voicemeeter and similar). It is the most likely reason process loopback is silent.
-2. **Optionally**, one targeted try at Spotify-only capture: move `Initialize`, `GetService` and
+1. (Answered: the user has a standard output device, no virtual or enhanced audio software.)
+2. **Optionally**, one targeted try at Spotify-only capture, now the most promising lead: move `Initialize`, `GetService` and
    `SetEventHandle` into `ActivationHandler.ActivateCompleted` in `native/lumina-helper/Capture.cs`,
    mirroring Microsoft's sample, then run `npm run check:audio` **while Spotify plays**. If it is
    still silent, stop: system loopback stays the default.
