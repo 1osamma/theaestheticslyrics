@@ -1,0 +1,153 @@
+# LUMINA Phase 2 handoff
+
+State at handoff: branch **`lumina/phase-2`** (local only, **not pushed**), latest commit **`7252eba`**,
+working tree clean. It is based on `lumina/phase-1` @ `6fb7f00`, which is pushed to
+`origin` = `https://github.com/1osamma/theaestheticslyrics.git`. `main` is untouched.
+Nothing is merged or pushed, and no pull request exists.
+
+Full technical detail: [architecture.md](architecture.md), sections "LUMINA Lighting (Phase 2)",
+"Settings", "Performance (measured)" and "Reliability".
+
+## Commits on lumina/phase-2
+
+| Commit | What |
+|---|---|
+| `d799d99` | WASAPI capture helper (C#) and real-time audio analysis (worker thread, FFT) |
+| `f624444` | Hybrid lighting engine, WebGL2 renderer, fullscreen lighting, desktop edge lighting, settings v2, tray, Lighting Settings window |
+| `94b8dd5` | Fixes from live tests: frame pacing (`FrameGate`), GPU status timing, maximized windows ≠ full screen, audible capture keeps edge lighting awake, perf report |
+| `7252eba` | System loopback is the default audio source; Spotify-only is experimental; edge windows no longer block quit; docs |
+
+## Implemented and verified
+
+| Feature | Status | How it was verified |
+|---|---|---|
+| Native helper `resources/lumina-helper.exe` (built from `native/lumina-helper/*.cs` with .NET Framework `csc.exe`; no SDK, runs as the user) | ✔ | Builds clean; `npm run check:audio` |
+| **System (endpoint) loopback capture = default source**, labelled "All desktop audio (not Spotify only)" | ✔ | Live: real music analysed (bass ≈ 0.75, about 14 beat pulses per 6 s), 60 frames/s |
+| Analysis: FFT 2048, bass/mids/treble, adaptive normalisation, attack/release, flux transients, beat-like pulse, silence | ✔ | 20 synthetic-signal tests and live levels |
+| `AudioService` lifecycle: on demand, 4 s stop delay, backoff restart, frame validation, helper released on stop and quit | ✔ | 13 unit tests; live stop/restart when a full-screen app appeared; no leftover helper after quit |
+| `LightingEngine` (shared): album palette = colour, audio = motion; modes Off / Static / Ambient / Bass / Hybrid; smoothing, sensitivity, reduced motion | ✔ | 16 unit tests |
+| WebGL2 renderer (half resolution, one shader, dither, readability guard, context-loss fallback) and CSS fallback | ✔ | Live WebGL at 1440p; live CSS fallback with `--disable-gpu` |
+| Fullscreen player lighting (Phase 1 layout and lyric sync unchanged) | ✔ | Snapshots `player-quiet` and `player-beat-edges`; live runs with real Spotify, artwork and NetEase word timing |
+| Desktop edge lighting: per-monitor transparent, click-through, non-activating tool window | ✔ | Live probe: `WS_EX_TRANSPARENT \| LAYERED \| TOOLWINDOW \| NOACTIVATE \| TOPMOST`; hit tests pass through |
+| Pause in full-screen apps (borderless/F11 without a title bar, or exclusive D3D; maximized windows ignored) | ✔ | Live in both directions |
+| OLED rest 60 s after music stops; hidden while the player is open; Pause Lighting as an emergency off | ✔ | Unit tests and code path |
+| Settings v2 with v1 migration; tray "LUMINA Lighting" submenu; Lighting Settings window | ✔ | 17 settings tests; window compiles and renders (not visually reviewed in a capture) |
+| Frame-rate targets 30/60/120/240 via `FrameGate` (average rate even when it doesn't divide the refresh rate) | ✔ | Tests; live 120 target gave 119 light FPS on a 179.9 Hz panel |
+
+## Not working or not verified
+
+1. **Spotify-only capture (process loopback) delivers silence on this PC.** It is implemented and
+   selectable as "Spotify only (experimental)". The diagnostic pass is complete; **do not repeat it**.
+   Evidence:
+   - Activation parameters are honoured: an invalid type returns `E_INVALIDARG`.
+   - About 100 packets per second arrive, never flagged silent, but hold only dither (−99.7 dBFS).
+   - The result is the same for the root process tree and each Spotify process on its own; for
+     44.1 kHz and 48 kHz PCM and float; on MTA and STA threads; with and without `AUTOCONVERTPCM`.
+   - Exclude mode, even excluding Explorer, is equally silent, while endpoint loopback of the same
+     device hears the music.
+   - Microphone privacy is Allow.
+   - **The only untried difference from Microsoft's ApplicationLoopback sample:** the sample calls
+     `IAudioClient::Initialize` (and `GetService`, `SetEventHandle`) **inside**
+     `ActivateCompleted`; LUMINA calls them after the callback signals.
+   - The other likely cause is the PC's audio environment (driver, audio effects, a virtual output
+     device such as Sonar or Nahimic). Worth checking with the user.
+2. **Spotify starts playing about 4 s after the lyrics screen opens, and pauses about 3 s after the
+   app quits** (seen in every lyrics-screen test run today, including with lighting Off, so it isn't
+   audio capture). Not seen in Phase 1 runs earlier the same day. **Ask the user whether they were
+   pressing play and pause during the tests before investigating.** If they weren't, suspect the
+   lyrics-screen path (focus, `PowerKeeper`, input handlers in `src/renderer/src/stage/main.ts`) or
+   a second running LUMINA instance (the user's own dev instance held Ctrl+Alt+L throughout).
+3. **Not exercised live:**
+   - real output-device switching (Bluetooth, USB);
+   - Spotify closing and restarting during capture;
+   - a second monitor (only one connected);
+   - display-scaling changes;
+   - a real game (full-screen detection was verified with another app's full-screen window);
+   - a visual review of the Lighting Settings window (there is a `--capture-lighting=<png>` flag for it);
+   - 240 Hz (the panel ran at 179.9 Hz).
+4. **Known cost:** with Spotify playing, GPU-3D use (about 9%) comes from the **Phase 1 lyric
+   word-fill animation** at display rate (text gradient and glow repaint), not from lighting (0.33%
+   at 180 FPS). A possible optimisation: render the active-line fill more cheaply.
+
+## Tests and measurements (latest)
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | Pass |
+| `npm test` | **301/301** tests, 32 files |
+| `npx electron-vite build` | Pass (worker bundled as `out/main/chunks/worker-*.js`) |
+| `npm run snapshot -- --snapshot-size=2560x1440` | 21 PNGs: 4 styles × 3, 7 player shots, `edge-lighting.png` and `edge-lighting-preview.png` |
+| `npm run check:audio` | System source captures and analyses; Spotify source captures silence (above) |
+| Edge overlay, WebGL, 60 target, 1440p | 59.9–60.0 FPS, p99 16.8–16.9 ms, script about 0.03 ms per frame, no long tasks |
+| Player, lighting only, 240 target | 180 FPS (the panel's limit), p99 5.8 ms, GPU-3D 0.33% average |
+| Player with Spotify playing, 60 / 120 target | Light 60.0 / 119.0 FPS; page 140–157 FPS; GPU-3D 9.1% / 7.7% average |
+| 3-minute soak | Flat memory (browser 165→154 MB, GPU 151→155 MB, renderer 222→227 MB) |
+| Audio delivery (main → renderer) | p50 0–1 ms, p99 1 ms |
+| Helper CPU | 0.02–0.03% of all cores |
+
+All measurements were taken with live **system** audio, in a throwaway profile (`TAL_PROFILE`).
+
+## Files
+
+**New:**
+- `native/lumina-helper/{Interop,Capture,Program}.cs`
+- `scripts/build-helper.mjs`
+- `src/main/audio/{analysis,fft,packets,worker,worker-protocol,audio-service,create-worker}.ts`
+- `src/main/ui/{edge-controller,edge-logic,fullscreen-watcher,lighting-window}.ts`
+- `src/shared/{audio-frame,lighting-engine}.ts`
+- `src/renderer/{edge,lighting}.html`
+- `src/renderer/src/edge/main.ts`, `src/renderer/src/lighting-panel/main.ts`
+- `src/renderer/src/lighting/{light-renderer,webgl-renderer,css-renderer,light-layer,frame-utils,edge-weights,perf}.ts`
+- `src/renderer/src/css/{edge,lighting}.css`
+- Tests: `tests/{audio-analysis,audio-service,lighting-engine,edge-lighting}.test.ts`, `tests-live/audio-capture.live.test.ts`
+- Docs: this file
+
+**Modified:**
+- `src/main/{app-controller,settings,snapshot,index,paths}.ts`
+- `src/main/ui/{stage-controller,tray,windows}.ts`
+- `src/shared/{lighting,ipc,types}.ts`, `src/preload/index.ts`
+- `src/renderer/src/player/player-view.ts`, `src/renderer/src/stage/{main,frame-gate}.ts`, `src/renderer/src/stage/styles/types.ts`
+- `src/renderer/src/ambient/drive.ts` (`albumDrive` removed, superseded), `src/renderer/src/css/player.css`
+- `electron.vite.config.ts`, `package.json` (`pre*` helper build, `build:helper`, `check:audio`), `scripts/package-win.mjs` (ships the helper), `.gitignore` (the helper exe), `.github/workflows/ci.yml`, `tsconfig.node.json`, `vitest.live.config.ts`
+- `README.md`, `docs/lumina/architecture.md`
+- `tests/{settings,player-state}.test.ts`
+
+## Exact next steps
+
+1. **Ask the user** about the Spotify play/pause observation (above) and whether they use a
+   virtual or enhanced audio device.
+2. **Optionally**, one targeted try at Spotify-only capture: move `Initialize`, `GetService` and
+   `SetEventHandle` into `ActivationHandler.ActivateCompleted` in `native/lumina-helper/Capture.cs`,
+   mirroring Microsoft's sample, then run `npm run check:audio` **while Spotify plays**. If it is
+   still silent, stop: system loopback stays the default.
+3. Have the user review the Lighting Settings window (`npm run dev`, tray → LUMINA Lighting →
+   Lighting Settings…) and the edge glow on their desktop; tune defaults if needed.
+4. Live checks not yet done: Bluetooth or USB device switching, Spotify close/restart during
+   capture, a real full-screen game, a second monitor if available.
+5. Optional optimisation: a cheaper Phase 1 active-line word fill (the main GPU cost while playing).
+6. When the user approves: push `lumina/phase-2` and open a pull request (ask first).
+
+## Commands to resume
+
+```bash
+cd C:\Users\osama\Desktop\lumina
+git switch lumina/phase-2
+git log --oneline -5
+npm ci
+npm run build:helper
+npm run typecheck
+npm test
+npm run dev
+npm run check:audio
+npm run snapshot -- --snapshot-size=2560x1440
+```
+
+`npm ci` is only needed if `node_modules` is missing. `npm run dev` starts the app (tray →
+LUMINA Lighting). Play something first for `npm run check:audio`, which prints live levels for
+both sources.
+
+**Debug runs** use a throwaway profile so your settings aren't touched:
+- `TAL_PROFILE=<dir> npx electron . --open-lock-after=2500 --perf-after=6500 --perf-window=12000 --perf-file=<json> --quit-after=20000`
+- `--edge-probe-after=<ms>` logs the edge window handles; then run
+  `resources\lumina-helper.exe probe <hwnd> <x> <y>` to check styles and click-through.
+- `--capture-lighting=<png>` saves the Lighting Settings window.
