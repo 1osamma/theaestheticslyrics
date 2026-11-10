@@ -18,6 +18,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: node scripts/build-helper.mjs
       - run: npm run typecheck
       - run: npm test
       - run: npx electron-vite build

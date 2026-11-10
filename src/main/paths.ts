@@ -12,6 +12,8 @@ export interface AppPaths {
    */
   lyricsDir: string
   bridgeScript: string
+  /** lumina-helper.exe: WASAPI audio capture and full-screen detection (built by scripts/build-helper.mjs). */
+  helperExe: string
   trayIcon: string
   appIcon: string
 }
@@ -32,6 +34,7 @@ export function resolvePaths(): AppPaths {
     logFile: join(userData, 'logs', 'theaestheticslyrics.log'),
     lyricsDir: process.env['TAL_LYRICS_DIR'] ? resolve(process.env['TAL_LYRICS_DIR']) : join(userData, 'Lyrics'),
     bridgeScript: join(resources, 'smtc-bridge.ps1'),
+    helperExe: join(resources, 'lumina-helper.exe'),
     trayIcon: join(resources, 'tray.ico'),
     appIcon: join(resources, 'icon.ico')
   }

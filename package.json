@@ -26,9 +26,13 @@
     "lock-screen"
   ],
   "scripts": {
+    "predev": "node scripts/build-helper.mjs",
     "dev": "electron-vite dev",
+    "prestart": "node scripts/build-helper.mjs",
     "start": "electron-vite preview",
+    "prebuild": "node scripts/build-helper.mjs",
     "build": "npm run typecheck && electron-vite build",
+    "build:helper": "node scripts/build-helper.mjs --force",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -38,7 +42,8 @@
     "snapshot": "electron-vite build && electron . --snapshot=snapshots",
     "package": "npm run build && node scripts/package-win.mjs",
     "fake-player": "electron scripts/fake-player/main.cjs",
-    "check:lrclib": "vitest run --config vitest.live.config.ts"
+    "check:lrclib": "vitest run --config vitest.live.config.ts tests-live/lrclib.live.test.ts",
+    "check:audio": "node scripts/build-helper.mjs && vitest run --config vitest.live.config.ts tests-live/audio-capture.live.test.ts"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",

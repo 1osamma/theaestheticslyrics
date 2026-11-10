@@ -27,8 +27,9 @@ const [appDir] = await packager({
   prune: true,
   overwrite: true,
   icon: join(root, 'resources', 'icon.ico'),
-  // PowerShell cannot read files inside an asar archive, so the bridge ships beside it.
-  extraResource: ['smtc-bridge.ps1', 'tray.ico', 'icon.ico'].map((f) => join(root, 'resources', f)),
+  // PowerShell cannot read files inside an asar archive, and executables cannot run from one, so the
+  // bridge and the audio helper ship beside it.
+  extraResource: ['smtc-bridge.ps1', 'lumina-helper.exe', 'tray.ico', 'icon.ico'].map((f) => join(root, 'resources', f)),
   ignore: [
     // Every library is bundled into out/ by electron-vite, so nothing from node_modules ships.
     /^\/node_modules(\/|$)/,
