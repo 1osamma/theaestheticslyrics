@@ -46,7 +46,11 @@ describe('extractAmbient', () => {
 
   it('gives soft greys for a greyscale cover', () => {
     const ambient = extractAmbient(bitmap(16, (x) => (x < 8 ? [40, 40, 40] : [200, 200, 200])), 16, 16)!
-    for (const c of ambient.colors) expect(oklch(c).C).toBeLessThan(0.05)
+    for (const c of ambient.colors) {
+      expect(oklch(c).C).toBeLessThan(0.05)
+      // Dimmer than colourful light, so a black-and-white cover keeps the OLED screen dark.
+      expect(oklch(c).L).toBeLessThanOrEqual(0.43)
+    }
   })
 
   it('returns null for unusable art', () => {

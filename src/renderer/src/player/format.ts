@@ -19,3 +19,17 @@ export function sourceLabel(app: string): string {
   if (/AppleInc\.AppleMusic|itunes/i.test(app)) return 'Apple Music'
   return ''
 }
+
+/** A trailing "(feat. …)", "[with …]" or " - Remastered 2011" style suffix. */
+const TITLE_EXTRA = /\s*(?:[([](?:feat\.?|ft\.?|featuring|with)\s[^)\]]*[)\]]|\s-\s.*\b(?:remaster(?:ed)?|live|version|edit|mix|mono|stereo)\b.*)$/i
+
+/**
+ * Splits a track title into the name and a secondary suffix the player shows quieter, so
+ * "Song (feat. Someone)" does not wrap onto two heavy lines.
+ */
+export function splitTitle(title: string): { main: string; extra: string } {
+  const trimmed = title.trim()
+  const match = TITLE_EXTRA.exec(trimmed)
+  if (!match || match.index === 0) return { main: trimmed, extra: '' }
+  return { main: trimmed.slice(0, match.index).trim(), extra: match[0].trim() }
+}

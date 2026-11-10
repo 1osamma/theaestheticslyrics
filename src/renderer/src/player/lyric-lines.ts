@@ -2,7 +2,7 @@ import { approach } from '../ambient/drive'
 import { activeWordIndex, type LyricsModel } from '../stage/model'
 import { setStyle } from '../stage/style-cache'
 import type { AnimationIntensity } from '@shared/types'
-import { lineOpacity, lyricFocus, segmentLine, wordFill } from './lines'
+import { groupUnits, lineOpacity, lyricFocus, segmentLine, wordFill } from './lines'
 
 /** The focused line's top sits this far down the lyrics column. */
 const ANCHOR = 0.34
@@ -64,17 +64,26 @@ export function createLyricLines() {
       const el = document.createElement('div')
       el.className = 'lm-line'
       const view: LineView = { el, words: [], gaps: [], full: false }
-      for (const seg of segmentLine(line)) {
-        const span = document.createElement('span')
-        span.textContent = seg.text
-        if (seg.word === null) {
-          span.className = 'lm-gap'
-          view.gaps.push({ el: span, after: view.words.length - 1 })
-        } else {
-          span.className = 'lm-word'
-          view.words.push(span)
+      for (const unit of groupUnits(segmentLine(line))) {
+        if (unit.kind === 'space') {
+          el.append(' ')
+          continue
         }
-        el.append(span)
+        const group = document.createElement('span')
+        group.className = 'lm-unit'
+        for (const seg of unit.segments) {
+          const span = document.createElement('span')
+          span.textContent = seg.text
+          if (seg.word === null) {
+            span.className = 'lm-gap'
+            view.gaps.push({ el: span, after: view.words.length - 1 })
+          } else {
+            span.className = 'lm-word'
+            view.words.push(span)
+          }
+          group.append(span)
+        }
+        el.append(group)
       }
       track.append(el)
       views.push(view)

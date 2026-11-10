@@ -254,10 +254,17 @@ body[data-snapshot] *::after {
   font-weight: 700;
   letter-spacing: var(--lm-tracking-tight);
   line-height: 1.15;
+  text-wrap: balance;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.lm-title-extra {
+  font-weight: 500;
+  color: var(--lm-text-3);
+  letter-spacing: -0.01em;
 }
 
 .lm-artist {
@@ -347,8 +354,8 @@ body[data-snapshot] *::after {
 }
 
 .lm-line {
-  padding: 0.2em 0;
-  max-width: 22em;
+  padding: 0.22em 0;
+  max-width: 19em;
   font-size: calc(var(--lm-fs-lyric) * var(--lm-lyric-scale));
   font-weight: 700;
   line-height: 1.2;
@@ -358,7 +365,9 @@ body[data-snapshot] *::after {
   transition:
     opacity var(--lm-dur-slow) var(--lm-ease-out),
     transform var(--lm-dur-slow) var(--lm-ease-out);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  /* Two-line lyrics break evenly instead of leaving one word on its own line. */
+  text-wrap: balance;
 }
 
 /* Each word draws its sung part in full white and the rest dimmed; --p (0–1) moves the edge. */
@@ -383,9 +392,12 @@ body[data-snapshot] *::after {
   filter: drop-shadow(0 0 var(--lm-glow) color-mix(in srgb, var(--lm-accent) 85%, transparent));
 }
 
+.lm-unit {
+  white-space: nowrap;
+}
+
 .lm-gap {
   color: var(--lm-unsung);
-  white-space: pre-wrap;
 }
 
 .lm-gap.is-sung {

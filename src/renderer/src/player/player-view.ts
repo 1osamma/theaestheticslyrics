@@ -6,7 +6,7 @@ import type { LyricsModel } from '../stage/model'
 import { setStyle } from '../stage/style-cache'
 import type { FrameInfo, StageStyle } from '../stage/styles/types'
 import { ChromeFader } from './chrome-fader'
-import { formatTime, progressOf, sourceLabel } from './format'
+import { formatTime, progressOf, sourceLabel, splitTitle } from './format'
 import { createLyricLines } from './lyric-lines'
 
 /** Without art for this long after a track change, the card shows its fallback. */
@@ -234,7 +234,9 @@ export function createPlayerView(): PlayerView {
       status = nextStatus
       root.dataset.state = next ? 'track' : 'idle'
       if (changed) {
-        title.textContent = next?.title || 'Unknown title'
+        const { main: name, extra } = splitTitle(next?.title || 'Unknown title')
+        title.textContent = name
+        if (extra) title.append(' ', el('span', 'lm-title-extra', extra))
         artist.textContent = next ? [next.artist, next.album].filter(Boolean).join(' — ') : ''
         source.textContent = next ? sourceLabel(next.app) : ''
         shownElapsed = ''

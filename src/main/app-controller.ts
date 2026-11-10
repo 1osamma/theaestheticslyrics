@@ -228,7 +228,12 @@ export class AppController {
     if (!this.track || art.key !== this.track.key) return
     try {
       const image = nativeImage.createFromBuffer(art.data)
-      if (image.isEmpty()) return
+      if (image.isEmpty()) {
+        this.log(`artwork: could not decode ${art.mime} (${art.data.length} bytes)`)
+        return
+      }
+      const { width: artWidth, height: artHeight } = image.getSize()
+      this.log(`artwork: ${artWidth}×${artHeight} ${art.mime}`)
       const small = image.resize({ width: 64, height: 64, quality: 'good' })
       const { width, height } = small.getSize()
       const bitmap = small.toBitmap()

@@ -33,6 +33,42 @@ export function segmentLine(line: Pick<TimedLine, 'text' | 'words'>): Segment[] 
   return segments
 }
 
+/** A run that must not break across lines: one word with the punctuation touching it, or a space. */
+export type Unit = { kind: 'word'; segments: Segment[] } | { kind: 'space' }
+
+/**
+ * Groups a line's segments into units the browser may only break between, so a wrapped line never
+ * starts with a space or with the comma or quote that belongs to the word before or after it. Each
+ * unit holds at most one word, so lines without spaces (CJK) can still break between words.
+ */
+export function groupUnits(segments: Segment[]): Unit[] {
+  const units: Unit[] = []
+  let current: Segment[] = []
+  const flush = (): void => {
+    if (current.length) units.push({ kind: 'word', segments: current })
+    current = []
+  }
+  for (const seg of segments) {
+    if (seg.word !== null) {
+      if (current.some((s) => s.word !== null)) flush()
+      current.push(seg)
+      continue
+    }
+    for (const part of seg.text.split(/(\s+)/u)) {
+      if (!part) continue
+      if (/^\s+$/u.test(part)) {
+        flush()
+        if (units.length && units.at(-1)!.kind !== 'space') units.push({ kind: 'space' })
+      } else {
+        current.push({ text: part, word: null })
+      }
+    }
+  }
+  flush()
+  if (units.at(-1)?.kind === 'space') units.pop()
+  return units
+}
+
 /** After a line ends, a gap longer than this before the next one is an interlude. */
 export const INTERLUDE_MIN_MS = 4000
 /** A line still counts as being sung this long after its last word. */

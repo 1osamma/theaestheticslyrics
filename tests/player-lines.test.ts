@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { INTERLUDE_MIN_MS, lineOpacity, lyricFocus, segmentLine, wordFill } from '../src/renderer/src/player/lines'
+import { INTERLUDE_MIN_MS, groupUnits, lineOpacity, lyricFocus, segmentLine, wordFill, type Unit } from '../src/renderer/src/player/lines'
 import { buildModel } from '../src/renderer/src/stage/model'
 import type { TimedLyrics } from '../src/shared/types'
 
@@ -76,6 +76,49 @@ describe('segmentLine', () => {
 
   it('shows a note for a line without words', () => {
     expect(segmentLine({ text: '  ', words: [] })).toEqual([{ text: '♪', word: null }])
+  })
+})
+
+/** Renders units as text, with | marking where the browser may break. */
+const show = (units: Unit[]): string =>
+  units.map((u) => (u.kind === 'space' ? '|' : u.segments.map((s) => s.text).join(''))).join('')
+
+describe('groupUnits', () => {
+  it('keeps punctuation and quotes with their words, so wrapped lines never start with them', () => {
+    const line = {
+      text: '"Lanterns drift, slowly"',
+      words: [
+        { text: 'Lanterns', start: 0, end: 1 },
+        { text: 'drift', start: 1, end: 2 },
+        { text: 'slowly', start: 2, end: 3 }
+      ]
+    }
+    expect(show(groupUnits(segmentLine(line)))).toBe('"Lanterns|drift,|slowly"')
+  })
+
+  it('drops spaces at the start and end and collapses repeated spaces', () => {
+    const line = { text: '  over   paper ', words: [{ text: 'over', start: 0, end: 1 }, { text: 'paper', start: 1, end: 2 }] }
+    expect(show(groupUnits(segmentLine(line)))).toBe('over|paper')
+  })
+
+  it('puts each CJK character in its own unit so the line can still wrap', () => {
+    const line = {
+      text: '紙の灯、',
+      words: [
+        { text: '紙', start: 0, end: 1 },
+        { text: 'の', start: 1, end: 2 },
+        { text: '灯', start: 2, end: 3 }
+      ]
+    }
+    const units = groupUnits(segmentLine(line))
+    expect(units).toHaveLength(3)
+    expect(units.map((u) => (u.kind === 'word' ? u.segments.map((s) => s.text).join('') : ' '))).toEqual(['紙', 'の', '灯、'])
+  })
+
+  it('keeps every word exactly once and in order', () => {
+    const units = groupUnits(segmentLine(lyrics.lines[0]!))
+    const words = units.flatMap((u) => (u.kind === 'word' ? u.segments.filter((s) => s.word !== null).map((s) => s.word) : []))
+    expect(words).toEqual([0, 1, 2])
   })
 })
 

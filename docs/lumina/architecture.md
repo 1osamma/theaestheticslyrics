@@ -73,6 +73,7 @@ full-screen window.
 | Paused | A "Paused" pill appears. The light dims to about 72% and slows. Lyrics and progress hold still, and the loop drops to its idle rate. |
 | Track skipped | The art crossfades, track info and lyrics rise in, and the light crossfades to the new palette over 1.4 s. |
 | No album art | The card waits 1.2 s for late art, then shows an original gradient placeholder. The light uses the lyric colours. |
+| Spotify album art | Spotify's Store app publishes its cover to SMTC as a **300×300 PNG**. That is all Windows provides without signing in to Spotify's Web API, which LUMINA does not do, so on a 1440p screen the cover is shown about 2× enlarged. The bridge reads the thumbnail through reflection: PowerShell cannot resolve the stream class Spotify returns and would otherwise drop the art. Art-read failures go to the log once per track (`bridge: Album art unreadable …`). Each cover that arrives is logged as `artwork: 300×300 image/png`. |
 | No synced lyrics | The art and progress stay. The lyrics column says *Finding lyrics…*, *No synced lyrics for this song*, *Instrumental* or *Lyrics are unavailable right now*. |
 | Instrumental break (≥ 4 s) | The last line dims and three dots breathe in the gap. |
 | Window resize / display change | The layout uses viewport units, and lyric positions are measured again when the size changes. |

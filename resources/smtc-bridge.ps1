@@ -55,23 +55,34 @@ function UnixMs($value) {
   try { return ([DateTimeOffset]$value).ToUnixTimeMilliseconds() } catch { return 0 }
 }
 
+# The thumbnail stream is reached through its interfaces with reflection. Spotify's Store app hands
+# out a stream whose runtime class PowerShell cannot resolve, so it arrives as a bare __ComObject:
+# its properties read as empty and PowerShell refuses to pass it to DataReader. Reflection makes the
+# CLR cast (QueryInterface) to each interface itself, which works for every player.
+$script:StreamSize = [Windows.Storage.Streams.IRandomAccessStream].GetProperty('Size')
+$script:StreamType = [Windows.Storage.Streams.IContentTypeProvider].GetProperty('ContentType')
+$script:AsStreamForRead = [System.IO.WindowsRuntimeStreamExtensions].GetMethod('AsStreamForRead', [Type[]]@([Windows.Storage.Streams.IInputStream]))
+$script:Close = [System.IDisposable].GetMethod('Dispose')
+
 function Read-Art($thumbnail) {
   if ($null -eq $thumbnail) { return $null }
   $stream = Await ($thumbnail.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
   try {
-    $size = [uint32]$stream.Size
+    $size = [uint64]$script:StreamSize.GetValue($stream)
     if ($size -le 0 -or $size -gt 8MB) { return $null }
-    $reader = New-Object Windows.Storage.Streams.DataReader($stream)
+    $mime = [string]$script:StreamType.GetValue($stream)
+    $source = $script:AsStreamForRead.Invoke($null, @($stream))
+    $buffer = New-Object System.IO.MemoryStream
     try {
-      $loaded = Await ($reader.LoadAsync($size)) ([uint32])
-      $bytes = New-Object byte[] $loaded
-      $reader.ReadBytes($bytes)
-      return @{ mime = [string]$stream.ContentType; bytes = $bytes }
+      $source.CopyTo($buffer)
     } finally {
-      $reader.Dispose()
+      $source.Dispose()
     }
+    $bytes = $buffer.ToArray()
+    if ($bytes.Length -eq 0) { return $null }
+    return @{ mime = $mime; bytes = $bytes }
   } finally {
-    $stream.Dispose()
+    try { $null = $script:Close.Invoke($stream, $null) } catch { }
   }
 }
 
@@ -140,7 +151,7 @@ while ($true) {
         $key = "$app|$title|$artist|$album"
         $state = $artState[$key]
         if ($null -eq $state) {
-          $state = @{ first = $tick; seen = $tick; hash = ''; done = $false }
+          $state = @{ first = $tick; seen = $tick; hash = ''; done = $false; failed = $false }
           $artState[$key] = $state
         }
         $state.seen = $tick
@@ -156,7 +167,13 @@ while ($true) {
               }
               $state.done = $true
             }
-          } catch { }
+          } catch {
+            # Reported once per track, so a player that never shares its art cannot flood the log.
+            if (-not $state.failed) {
+              $state.failed = $true
+              Emit @{ type = 'error'; message = "Album art unreadable for ${app}: $($_.Exception.Message)" }
+            }
+          }
         }
       } catch {
         # A session can disappear while it is being read; skip it this round.

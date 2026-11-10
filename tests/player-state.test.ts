@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { albumDrive, approach } from '../src/renderer/src/ambient/drive'
 import { CHROME_HIDE_MS, ChromeFader } from '../src/renderer/src/player/chrome-fader'
-import { formatTime, progressOf, sourceLabel } from '../src/renderer/src/player/format'
+import { formatTime, progressOf, sourceLabel, splitTitle } from '../src/renderer/src/player/format'
 import { frameDue, targetFps } from '../src/renderer/src/stage/frame-gate'
 
 describe('formatTime', () => {
@@ -33,6 +33,22 @@ describe('sourceLabel', () => {
     expect(sourceLabel('SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify')).toBe('Spotify')
     expect(sourceLabel('AppleInc.AppleMusicWin_nzyj5cx40ttqa!App')).toBe('Apple Music')
     expect(sourceLabel('chrome')).toBe('')
+  })
+})
+
+describe('splitTitle', () => {
+  it('moves featured artists and version suffixes into a quieter part', () => {
+    expect(splitTitle('Paper Lanterns (feat. Lantern Choir)')).toEqual({ main: 'Paper Lanterns', extra: '(feat. Lantern Choir)' })
+    expect(splitTitle('Paper Lanterns [with The Test Band]')).toEqual({ main: 'Paper Lanterns', extra: '[with The Test Band]' })
+    expect(splitTitle('Paper Lanterns - Remastered 2011')).toEqual({ main: 'Paper Lanterns', extra: '- Remastered 2011' })
+    expect(splitTitle('Paper Lanterns - Live at the Harbor')).toEqual({ main: 'Paper Lanterns', extra: '- Live at the Harbor' })
+  })
+
+  it('leaves ordinary titles, including ones with brackets or dashes, alone', () => {
+    expect(splitTitle('Paper Lanterns')).toEqual({ main: 'Paper Lanterns', extra: '' })
+    expect(splitTitle('Lanterns (Interlude)')).toEqual({ main: 'Lanterns (Interlude)', extra: '' })
+    expect(splitTitle('Lanterns - Part Two')).toEqual({ main: 'Lanterns - Part Two', extra: '' })
+    expect(splitTitle('(feat. Nobody)')).toEqual({ main: '(feat. Nobody)', extra: '' })
   })
 })
 

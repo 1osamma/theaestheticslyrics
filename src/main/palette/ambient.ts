@@ -12,11 +12,14 @@ const GREY_CHROMA = 0.035
 const MIN_L = 0.56
 const MAX_L = 0.74
 const MAX_C = 0.2
+/** Grey light washes an OLED screen out evenly, so a greyscale cover lights dimly. */
+const GREY_MIN_L = 0.3
+const GREY_MAX_L = 0.42
 
 /** Re-tunes one colour to glow on a black screen, keeping its hue. */
 function glow({ L, C, h }: Oklch): string {
-  const chroma = C < GREY_CHROMA ? C : Math.min(MAX_C, Math.max(0.08, C * 1.15))
-  return oklchToHex(Math.min(MAX_L, Math.max(MIN_L, L)), chroma, h)
+  if (C < GREY_CHROMA) return oklchToHex(Math.min(GREY_MAX_L, Math.max(GREY_MIN_L, L)), C, h)
+  return oklchToHex(Math.min(MAX_L, Math.max(MIN_L, L)), Math.min(MAX_C, Math.max(0.08, C * 1.15)), h)
 }
 
 const isGrey = (c: Oklch): boolean => c.C < GREY_CHROMA
