@@ -68,3 +68,32 @@ export const STYLE_LABELS: Record<StyleId, string> = {
   'fisheye-visual': 'Fisheye Visual',
   visual: 'Visual'
 }
+
+/** What the full-screen lyrics screen shows: the LUMINA player, or the classic lyric style on its own. */
+export type FullscreenLayout = 'player' | 'lyrics'
+
+export type AnimationIntensity = 'low' | 'medium' | 'high'
+
+/** Highest frame rate the lyrics screen draws at; 0 follows the display's refresh rate. */
+export type FrameRateCap = 0 | 30 | 60 | 120
+
+/** How the LUMINA player looks. Only settings that work today live here. */
+export interface PlayerConfig {
+  /** Album-art ambient lighting behind the player. */
+  ambient: boolean
+  /** Ambient light strength, 0–1. */
+  brightness: number
+  animation: AnimationIntensity
+  /** Freezes ambient drift, lyric scrolling, lift and glow (also follows Windows' own setting). */
+  reducedMotion: boolean
+  /** Multiplies the player's lyric font size. */
+  lyricScale: number
+  /** False when Chromium runs without GPU compositing: the player drops its costlier effects. */
+  gpu: boolean
+}
+
+/** Album art for the player, re-encoded by the main process. */
+export interface Artwork {
+  trackKey: string
+  dataUrl: string
+}

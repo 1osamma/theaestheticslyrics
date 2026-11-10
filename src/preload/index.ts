@@ -13,6 +13,7 @@ const api: LyricsAppApi = {
   stage: {
     onState: (cb) => subscribe(IPC.stageState, cb),
     onAnchor: (cb) => subscribe(IPC.stageAnchor, cb),
+    onArtwork: (cb) => subscribe(IPC.stageArtwork, cb),
     onSnapshot: (cb) => subscribe(IPC.stageSnapshot, cb),
     onSession: (cb) => subscribe(IPC.stageSession, cb),
     snapshotDone: (id) => ipcRenderer.send(IPC.stageSnapshotDone, id),

@@ -1,6 +1,13 @@
 import { Menu, Tray, nativeImage, type MenuItemConstructorOptions, type NativeImage } from 'electron'
 import { STYLE_IDS, STYLE_LABELS, type ColorRole, type LyricsStatus, type Palette, type ShowOn, type StyleId, type TrackInfo } from '@shared/types'
-import type { IdleMinutes, Settings } from '../settings'
+import {
+  ANIMATION_CHOICES,
+  BRIGHTNESS_CHOICES,
+  FRAME_RATE_CHOICES,
+  LYRIC_SCALE_CHOICES,
+  type IdleMinutes,
+  type Settings
+} from '../settings'
 import { swatchBitmap } from './swatch'
 
 export interface TrayModel {
@@ -13,6 +20,12 @@ export interface TrayModel {
   canLaunchAtLogin: boolean
   hotkeyOk: boolean
 }
+
+/** Settings the Player submenu and Full-Screen View change. */
+export type PlayerSettings = Pick<
+  Settings,
+  'layout' | 'ambient' | 'ambientBrightness' | 'animation' | 'reducedMotion' | 'lyricScale' | 'frameRateCap'
+>
 
 export interface TrayActions {
   setStyle(style: StyleId): void
@@ -29,6 +42,7 @@ export interface TrayActions {
   setAllPlayers(on: boolean): void
   openLyricsFolder(): void
   setLaunchAtLogin(on: boolean): void
+  setPlayer(patch: Partial<PlayerSettings>): void
   quit(): void
 }
 
@@ -40,6 +54,11 @@ const OFFSETS: { ms: number; label: string }[] = [
   { ms: 500, label: 'Words 0.5 s Later' },
   { ms: 750, label: 'Words 0.75 s Later (Bluetooth)' }
 ]
+
+const BRIGHTNESS_LABELS = ['Low', 'Medium', 'High']
+const ANIMATION_LABELS: Record<Settings['animation'], string> = { low: 'Subtle', medium: 'Standard', high: 'Expressive' }
+const LYRIC_SCALE_LABELS = ['Small', 'Default', 'Large', 'Extra Large']
+const frameRateLabel = (fps: number): string => (fps === 0 ? 'Match Display' : `${fps} FPS`)
 
 const IDLE: { minutes: IdleMinutes; label: string }[] = [
   { minutes: 0, label: 'Never' },
@@ -87,7 +106,7 @@ export class TrayMenu {
     private readonly actions: TrayActions
   ) {
     this.tray = new Tray(iconPath)
-    this.tray.setToolTip('theaestheticslyrics')
+    this.tray.setToolTip('LUMINA')
     this.tray.on('click', () => this.tray.popUpContextMenu())
   }
 
@@ -137,7 +156,7 @@ export class TrayMenu {
     })
 
     const template: MenuItemConstructorOptions[] = [
-      { label: 'theaestheticslyrics', enabled: false },
+      { label: 'LUMINA', enabled: false },
       { label: menuText(statusLine(m), 60), enabled: false },
       { type: 'separator' },
       {
@@ -148,8 +167,51 @@ export class TrayMenu {
         ]
       },
       {
+        label: 'Full-Screen View',
+        submenu: [
+          radio('LUMINA Player', s.layout === 'player', () => a.setPlayer({ layout: 'player' })),
+          radio(`Lyrics Only (${STYLE_LABELS[s.style]})`, s.layout === 'lyrics', () => a.setPlayer({ layout: 'lyrics' }))
+        ]
+      },
+      {
         label: 'Style',
         submenu: STYLE_IDS.map((id) => radio(STYLE_LABELS[id], s.style === id, () => a.setStyle(id)))
+      },
+      {
+        label: 'Player',
+        submenu: [
+          {
+            label: 'Ambient Lighting',
+            type: 'checkbox',
+            checked: s.ambient,
+            click: (item) => a.setPlayer({ ambient: item.checked })
+          },
+          {
+            label: 'Brightness',
+            enabled: s.ambient,
+            submenu: BRIGHTNESS_CHOICES.map((v, i) =>
+              radio(BRIGHTNESS_LABELS[i] ?? String(v), s.ambientBrightness === v, () => a.setPlayer({ ambientBrightness: v }))
+            )
+          },
+          {
+            label: 'Animation',
+            submenu: ANIMATION_CHOICES.map((v) =>
+              radio(ANIMATION_LABELS[v], s.animation === v, () => a.setPlayer({ animation: v }))
+            )
+          },
+          {
+            label: 'Lyric Size',
+            submenu: LYRIC_SCALE_CHOICES.map((v, i) =>
+              radio(LYRIC_SCALE_LABELS[i] ?? String(v), s.lyricScale === v, () => a.setPlayer({ lyricScale: v }))
+            )
+          },
+          {
+            label: 'Reduce Motion',
+            type: 'checkbox',
+            checked: s.reducedMotion,
+            click: (item) => a.setPlayer({ reducedMotion: item.checked })
+          }
+        ]
       },
       {
         label: 'Show Lyrics',
@@ -186,6 +248,12 @@ export class TrayMenu {
         click: (item) => a.setWordLevel(item.checked)
       },
       {
+        label: 'Frame Rate Limit',
+        submenu: FRAME_RATE_CHOICES.map((v) =>
+          radio(frameRateLabel(v), s.frameRateCap === v, () => a.setPlayer({ frameRateCap: v }))
+        )
+      },
+      {
         label: 'Lyrics Screen When Idle',
         submenu: IDLE.map((o) => radio(o.label, s.idleMinutes === o.minutes, () => a.setIdle(o.minutes)))
       },
@@ -206,11 +274,11 @@ export class TrayMenu {
         click: (item) => a.setLaunchAtLogin(item.checked)
       },
       { type: 'separator' },
-      { label: 'Quit theaestheticslyrics', click: () => a.quit() }
+      { label: 'Quit LUMINA', click: () => a.quit() }
     ]
 
     this.tray.setContextMenu(Menu.buildFromTemplate(template))
-    const tip = m.track?.title ? `theaestheticslyrics — ${m.track.title}${m.track.artist ? ` · ${m.track.artist}` : ''}` : 'theaestheticslyrics'
+    const tip = m.track?.title ? `LUMINA — ${m.track.title}${m.track.artist ? ` · ${m.track.artist}` : ''}` : 'LUMINA'
     this.tray.setToolTip(tip.length > 120 ? `${tip.slice(0, 119)}…` : tip)
   }
 }

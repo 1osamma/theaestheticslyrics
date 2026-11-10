@@ -1,0 +1,550 @@
+/* ---------- LUMINA full-screen player (design tokens: tokens.css) ---------- */
+
+body[data-mode='lock'].lm-cursor {
+  cursor: default;
+}
+
+body[data-snapshot] *,
+body[data-snapshot] *::before,
+body[data-snapshot] *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+.lm-player {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--lm-bg-base);
+  color: var(--lm-text-1);
+  font-family: var(--lm-font);
+  font-weight: 500;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  --lm-lift: -0.03em;
+  --lm-glow: 0.26em;
+  --lm-sung: var(--lm-text-1);
+  --lm-unsung: rgba(255, 255, 255, 0.44);
+}
+
+/* ---------- Ambient light ---------- */
+
+.lm-ambient-host,
+.lm-ambient,
+.lm-ambient-scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.lm-ambient {
+  transition: opacity var(--lm-dur-slow) var(--lm-ease-soft);
+}
+
+.lm-ambient-scene {
+  transition: opacity var(--lm-dur-scene) var(--lm-ease-in-out);
+}
+
+.lm-ambient-blob {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 92vmax;
+  height: 92vmax;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+/* Fine grain dithers the gradients so they never band on an OLED panel. Drawn once. */
+.lm-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.lm-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 130% 100% at 50% 50%, transparent 45%, rgba(5, 5, 7, 0.45) 80%, rgba(5, 5, 7, 0.85) 100%),
+    linear-gradient(to bottom, rgba(5, 5, 7, 0.4), rgba(5, 5, 7, 0) 22%, rgba(5, 5, 7, 0) 70%, rgba(5, 5, 7, 0.5));
+}
+
+.lm-player[data-lite='true'] .lm-grain {
+  display: none;
+}
+
+/* ---------- Top bar (chrome) and clock ---------- */
+
+.lm-chrome {
+  position: absolute;
+  top: var(--lm-space-6);
+  left: 7vw;
+  right: 7vw;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--lm-space-4);
+  font-size: var(--lm-fs-micro);
+  letter-spacing: var(--lm-tracking-wide);
+  text-transform: uppercase;
+  color: var(--lm-text-3);
+  opacity: 0;
+  transform: translateY(calc(var(--lm-unit) * -1));
+  transition:
+    opacity var(--lm-dur-base) var(--lm-ease-out),
+    transform var(--lm-dur-base) var(--lm-ease-out);
+  pointer-events: none;
+}
+
+.lm-player.is-chrome .lm-chrome {
+  opacity: 1;
+  transform: none;
+}
+
+.lm-brand {
+  font-weight: 700;
+  color: var(--lm-text-2);
+  letter-spacing: 0.32em;
+}
+
+.lm-source:empty {
+  display: none;
+}
+
+.lm-source::before {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-right: 0.7em;
+  border-radius: 50%;
+  background: var(--lm-accent);
+  box-shadow: 0 0 0.8em var(--lm-accent);
+  vertical-align: 0.08em;
+}
+
+.lm-esc {
+  margin-left: auto;
+  margin-right: 8vw;
+  padding: 0.5em 1em;
+  border: 1px solid var(--lm-glass-border);
+  border-radius: var(--lm-radius-pill);
+  background: var(--lm-glass);
+}
+
+.lm-clock {
+  position: absolute;
+  top: calc(var(--lm-space-6) - 0.2em);
+  right: 7vw;
+  z-index: 5;
+  font-size: var(--lm-fs-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--lm-text-2);
+  pointer-events: none;
+}
+
+/* ---------- Layout ---------- */
+
+.lm-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  column-gap: var(--lm-space-16);
+  padding: 13vh 7vw 11vh;
+  align-items: center;
+}
+
+.lm-player[data-state='idle'] .lm-stage {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lm-side {
+  justify-self: end;
+  width: min(42vh, 32vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lm-space-4);
+}
+
+.lm-main {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ---------- Album art ---------- */
+
+.lm-art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--lm-radius-lg);
+  background: var(--lm-surface-2);
+  box-shadow:
+    0 0 0 1px var(--lm-hairline),
+    0 2.4vh 6vh rgba(0, 0, 0, 0.55),
+    0 0 14vh color-mix(in srgb, var(--lm-accent) 46%, transparent);
+  transition: box-shadow var(--lm-dur-scene) var(--lm-ease-in-out);
+  margin-bottom: var(--lm-space-4);
+}
+
+.lm-player[data-lite='true'] .lm-art {
+  box-shadow:
+    0 0 0 1px var(--lm-hairline),
+    0 2vh 5vh rgba(0, 0, 0, 0.5);
+}
+
+.lm-art-img,
+.lm-art-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  opacity: 0;
+  transform: scale(1.015);
+  transition:
+    opacity var(--lm-dur-slow) var(--lm-ease-in-out),
+    transform var(--lm-dur-scene) var(--lm-ease-out);
+  object-fit: cover;
+  -webkit-user-drag: none;
+}
+
+.lm-art-img.is-shown,
+.lm-art-fallback.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+.lm-art-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--lm-text-2);
+  background:
+    radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--lm-accent) 55%, transparent), transparent 62%),
+    radial-gradient(circle at 75% 80%, color-mix(in srgb, var(--lm-accent-2) 45%, transparent), transparent 60%),
+    var(--lm-surface-2);
+}
+
+.lm-art-fallback svg {
+  width: 26%;
+  height: 26%;
+}
+
+/* ---------- Track info and progress ---------- */
+
+.lm-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lm-space-1);
+  min-width: 0;
+}
+
+.lm-title {
+  font-size: var(--lm-fs-title);
+  font-weight: 700;
+  letter-spacing: var(--lm-tracking-tight);
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.lm-artist {
+  font-size: var(--lm-fs-body);
+  color: var(--lm-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lm-progress[hidden],
+.lm-badge[hidden],
+.lm-message[hidden] {
+  display: none;
+}
+
+.lm-bar {
+  position: relative;
+  height: max(3px, 0.32vh);
+  border-radius: var(--lm-radius-pill);
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.lm-bar-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--lm-accent) 70%, white), var(--lm-text-1));
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  will-change: transform;
+}
+
+.lm-times {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--lm-space-2);
+  font-size: var(--lm-fs-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--lm-text-3);
+}
+
+.lm-pill {
+  padding: 0.25em 0.8em;
+  border-radius: var(--lm-radius-pill);
+  background: var(--lm-glass);
+  border: 1px solid var(--lm-glass-border);
+  color: var(--lm-text-2);
+  font-size: var(--lm-fs-micro);
+  letter-spacing: var(--lm-tracking-wide);
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity var(--lm-dur-base) var(--lm-ease-out);
+}
+
+.lm-player[data-playing='false'] .lm-pill {
+  opacity: 1;
+}
+
+.lm-badge {
+  align-self: flex-start;
+  font-size: var(--lm-fs-micro);
+  letter-spacing: var(--lm-tracking-wide);
+  text-transform: uppercase;
+  color: var(--lm-text-4);
+}
+
+/* ---------- Lyrics ---------- */
+
+.lm-lyrics {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 74%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 74%, transparent 100%);
+  --lm-lyric-scale: 1;
+}
+
+.lm-lyrics-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.lm-line {
+  padding: 0.2em 0;
+  max-width: 22em;
+  font-size: calc(var(--lm-fs-lyric) * var(--lm-lyric-scale));
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: var(--lm-tracking-tight);
+  color: var(--lm-sung);
+  transform-origin: 0 50%;
+  transition:
+    opacity var(--lm-dur-slow) var(--lm-ease-out),
+    transform var(--lm-dur-slow) var(--lm-ease-out);
+  overflow-wrap: anywhere;
+}
+
+/* Each word draws its sung part in full white and the rest dimmed; --p (0–1) moves the edge. */
+.lm-word {
+  --p: 1;
+  display: inline-block;
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--lm-sung) calc(var(--p) * (100% + 0.45em) - 0.45em),
+    var(--lm-unsung) calc(var(--p) * (100% + 0.45em))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  transition:
+    transform var(--lm-dur-base) var(--lm-ease-out),
+    filter var(--lm-dur-slow) var(--lm-ease-out);
+}
+
+.lm-word.is-active {
+  transform: translateY(var(--lm-lift));
+  filter: drop-shadow(0 0 var(--lm-glow) color-mix(in srgb, var(--lm-accent) 85%, transparent));
+}
+
+.lm-gap {
+  color: var(--lm-unsung);
+  white-space: pre-wrap;
+}
+
+.lm-gap.is-sung {
+  color: var(--lm-sung);
+}
+
+.lm-interlude {
+  position: absolute;
+  left: 0;
+  display: flex;
+  gap: 0.35em;
+  padding: 0.55em 0 0.35em;
+  font-size: calc(var(--lm-fs-lyric) * var(--lm-lyric-scale));
+  opacity: 0;
+  transition: opacity var(--lm-dur-base) var(--lm-ease-out);
+}
+
+.lm-interlude i {
+  width: 0.22em;
+  height: 0.22em;
+  border-radius: 50%;
+  background: var(--lm-text-2);
+}
+
+.lm-interlude.is-on i {
+  animation: lm-breathe 1.8s var(--lm-ease-in-out) infinite;
+}
+
+.lm-interlude.is-on i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.lm-interlude.is-on i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes lm-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.lm-message {
+  position: absolute;
+  left: 0;
+  top: 34%;
+  font-size: var(--lm-fs-title);
+  font-weight: 600;
+  letter-spacing: var(--lm-tracking-tight);
+  color: var(--lm-text-3);
+}
+
+/* ---------- Track change ---------- */
+
+.lm-rise {
+  animation: lm-rise var(--lm-dur-slow) var(--lm-ease-out) both;
+}
+
+@keyframes lm-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.2vh);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Nothing playing ---------- */
+
+.lm-idle {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lm-space-3);
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--lm-dur-slow) var(--lm-ease-out);
+}
+
+.lm-player[data-state='idle'] .lm-idle {
+  opacity: 1;
+}
+
+.lm-idle-mark {
+  font-size: clamp(14px, 1.6vh, 24px);
+  font-weight: 700;
+  letter-spacing: 0.5em;
+  margin-right: -0.5em;
+  color: var(--lm-text-3);
+}
+
+.lm-idle-title {
+  font-size: clamp(28px, 5.2vh, 84px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--lm-text-1);
+}
+
+.lm-idle-hint {
+  font-size: var(--lm-fs-body);
+  color: var(--lm-text-3);
+}
+
+/* ---------- Reduced motion ---------- */
+
+.lm-player[data-motion='reduced'] .lm-line,
+.lm-player[data-motion='reduced'] .lm-word {
+  transition: opacity var(--lm-dur-fast) linear;
+}
+
+.lm-player[data-motion='reduced'] .lm-rise,
+.lm-player[data-motion='reduced'] .lm-interlude.is-on i {
+  animation: none;
+}
+
+.lm-player[data-motion='reduced'] .lm-art-img,
+.lm-player[data-motion='reduced'] .lm-art-fallback {
+  transform: none;
+}
+
+/* ---------- Narrow and portrait screens: art and info above the lyrics ---------- */
+
+@media (max-aspect-ratio: 5/4) {
+  .lm-stage {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    row-gap: var(--lm-space-8);
+    padding: 12vh 7vw 8vh;
+    align-items: stretch;
+  }
+
+  .lm-side {
+    justify-self: stretch;
+    width: auto;
+    display: grid;
+    grid-template-columns: min(22vh, 34vw) minmax(0, 1fr);
+    column-gap: var(--lm-space-6);
+    align-items: end;
+  }
+
+  .lm-art {
+    grid-row: 1 / span 3;
+    margin-bottom: 0;
+  }
+
+  .lm-badge {
+    display: none;
+  }
+}

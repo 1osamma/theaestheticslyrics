@@ -8,6 +8,8 @@ export interface FrameInfo {
   wallMs: number
   width: number
   height: number
+  /** Snapshot mode: jump straight to the resting state instead of animating toward it. */
+  settle?: boolean
 }
 
 /**

@@ -9,6 +9,11 @@
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-ca415e"></a>
 </p>
 
+> **LUMINA** is a fork of theaestheticslyrics that adds a full-screen music player: album art,
+> track info, progress and word-synced lyrics over soft ambient light taken from the cover. It
+> keeps every original style and the desktop overlay. See [LUMINA](#lumina) and
+> [docs/lumina/architecture.md](docs/lumina/architecture.md).
+
 **theaestheticslyrics** lights up the lyrics of the song you're playing one word at a time, right as each word is sung. It sits in the Windows system tray and follows Spotify or Apple Music. The lyrics show on a full-screen lyrics screen when you step away, or float over your desktop while you work.
 
 It's a Windows take on [Verci](https://verci.xyz), a Mac app. It's free and open source, and you don't need an account or an API key.
@@ -35,6 +40,31 @@ It's a Windows take on [Verci](https://verci.xyz), a Mac app. It's free and open
 | The same lens, with icons beside the words. | One word at a time, with a matching icon or emoji beside it. About 800 words have one. |
 
 *The screenshots use an original demo song written for this project.*
+
+## LUMINA
+
+Press **Ctrl+Alt+L** while a song plays. By default the lyrics screen is now the LUMINA player:
+
+- The album art, with a soft glow, plus the title, artist and album, and a progress bar with elapsed and remaining time.
+- Lyrics, line by line. The sung part of each word fills in as it's sung, using real per-word timing when NetEase or an Enhanced LRC file has it.
+- Ambient light from the album art that drifts slowly, dims when you pause and crossfades between songs.
+- *Waiting for music* when nothing plays, and a placeholder cover when a song has no art.
+
+The player has no play/pause buttons. The app only *reads* Windows' media controls, so the
+buttons wouldn't work yet.
+
+Player settings are in tray → **Full-Screen View**, **Player** and **Frame Rate Limit**:
+
+| Setting | What it does |
+|---|---|
+| **Full-Screen View** | *LUMINA Player* or *Lyrics Only*, which is the original full-screen view in the chosen style. |
+| **Player → Ambient Lighting** | Turns the album-art light on or off. **Brightness**: Low, Medium or High. |
+| **Player → Animation** | Subtle, Standard or Expressive: how much the light drifts and the sung word lifts and glows. |
+| **Player → Lyric Size** | Small, Default, Large or Extra Large. |
+| **Player → Reduce Motion** | No drift, scrolling, lift or glow. Turning off Windows' *Animation effects* does the same. |
+| **Frame Rate Limit** | Match Display, 120, 60 or 30 FPS for the lyrics screen (all styles). |
+
+The overlay (**Show Lyrics → Always**) still uses the four styles below.
 
 ## How to use it
 
@@ -123,7 +153,7 @@ The first run downloads Electron.
 | `npm test` | Runs the unit tests (Vitest). |
 | `npm run typecheck` | Runs strict TypeScript for the main process and the pages. |
 | `npm run package` | Builds the portable folder and zip into `release\`. |
-| `npm run snapshot` | Renders every style offscreen into `snapshots\*.png`. |
+| `npm run snapshot` | Renders every style and the LUMINA player offscreen into `snapshots\*.png` (add `-- --snapshot-size=2560x1440` for another size). |
 | `npm run fake-player` | Starts a silent test "player" that shows up in Windows' media controls. |
 | `npm run check:lrclib` | Runs a live check against lrclib.net that prints metadata only. |
 | `npm run icons` | Regenerates the Fluent icon subset and the app icons. |
@@ -150,10 +180,10 @@ Run `npm run fake-player`, then start the app with the switches above. `tests\fi
 ```
 src/main/       tray app: media bridge, lyrics sources and cache, palette, windows, power
 src/preload/    the only bridge between the sandboxed pages and the app
-src/renderer/   the lyrics screen (four styles) and the Colors window
+src/renderer/   the lyrics screen (four styles and the LUMINA player), ambient light, design tokens, Colors window
 src/shared/     types and the IPC contract used by both sides
 resources/      smtc-bridge.ps1 (Windows media sessions → JSON lines) and the icons
-docs/           screenshots, plus the original design spec and plan
+docs/           screenshots, the original design spec and plan, and docs/lumina (LUMINA architecture)
 ```
 
 ## Contributing

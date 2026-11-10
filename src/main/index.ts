@@ -26,7 +26,13 @@ if (process.argv.includes('--smoke')) {
 } else if (snapshotDir) {
   void app.whenReady().then(async () => {
     try {
-      const files = await runSnapshots({ outDir: resolve(snapshotDir) })
+      // --snapshot-size=2560x1440 renders at another resolution (default 1536x864).
+      const [width, height] = (argValue('snapshot-size') ?? '').split('x').map(Number)
+      const files = await runSnapshots({
+        outDir: resolve(snapshotDir),
+        width: width && height ? width : undefined,
+        height: width && height ? height : undefined
+      })
       console.log(`TAL_SNAPSHOTS ${files.length}`)
       app.quit()
     } catch (err) {

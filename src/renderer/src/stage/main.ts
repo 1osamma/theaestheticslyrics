@@ -1,8 +1,12 @@
+import '../css/tokens.css'
 import '../css/stage.css'
+import '../css/player.css'
 import { DEFAULT_PALETTE } from '@shared/palette-defaults'
 import type { StageState } from '@shared/ipc'
-import type { Palette, ShowOn, StyleId } from '@shared/types'
+import type { Artwork, FrameRateCap, Palette, ShowOn, StyleId } from '@shared/types'
+import { createPlayerView, type PlayerView } from '../player/player-view'
 import { SongClock } from './clock'
+import { VSYNC_GATE_MAX_MS, frameDue, targetFps } from './frame-gate'
 import { LockClock } from './lock-clock'
 import { buildModel, msUntilNextWord, type LyricsModel } from './model'
 import { createStyle } from './styles/registry'
@@ -13,8 +17,15 @@ const root = document.getElementById('stage')!
 const clock = new SongClock()
 const lockClock = new LockClock(document.body)
 
-let style: StageStyle | null = null
-let styleId: StyleId | null = null
+/** What is drawn: one of the lyric styles, or the LUMINA player on the full-screen lyrics screen. */
+let view: StageStyle | null = null
+let viewKey: StyleId | 'player' | null = null
+let player: PlayerView | null = null
+let latestArtwork: Artwork | null = null
+let watchOnly = false
+let lastState: StageState | null = null
+let frameCap: FrameRateCap = 0
+let lastFrameAt = Number.NEGATIVE_INFINITY
 let model: LyricsModel | null = null
 let lyricsSignature = ''
 let palette: Palette = { ...DEFAULT_PALETTE }
@@ -22,6 +33,7 @@ let mode: ShowOn = 'lock'
 let snapshotMode = false
 let loopRunning = false
 let pendingState: StageState | null = null
+const systemReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 // Text is measured on a canvas, so the bundled font must be ready before the first layout.
 const fontsReady = Promise.all([
@@ -48,9 +60,13 @@ function applyPaletteVars(p: Palette): void {
 }
 
 function applyState(state: StageState): void {
+  lastState = state
   mode = state.config.mode
   document.body.dataset.mode = mode
-  lockClock.setVisible(mode === 'lock')
+  frameCap = state.config.frameRateCap
+  // The overlay always draws the chosen style; only the full-screen lyrics screen hosts the player.
+  const usePlayer = mode === 'lock' && state.config.layout === 'player'
+  lockClock.setVisible(mode === 'lock' && !usePlayer)
   palette = state.config.palette
   applyPaletteVars(palette)
   clock.setOffset(state.config.offsetMs)
@@ -62,47 +78,60 @@ function applyState(state: StageState): void {
     model = state.lyrics ? buildModel(state.lyrics) : null
   }
 
-  if (state.config.style !== styleId || !style) {
-    style?.destroy()
-    style = createStyle(state.config.style)
-    styleId = state.config.style
-    style.mount(root)
-    style.setLyrics(model)
+  const key = usePlayer ? 'player' : state.config.style
+  if (key !== viewKey || !view) {
+    view?.destroy()
+    player = usePlayer ? createPlayerView() : null
+    view = player ?? createStyle(state.config.style)
+    viewKey = key
+    view.mount(root)
+    view.setLyrics(model)
+    player?.setArtwork(latestArtwork)
+    player?.setWatchOnly(watchOnly)
   } else if (lyricsChanged) {
-    style.setLyrics(model)
+    view.setLyrics(model)
   }
-  style.setMode(mode)
-  style.setPalette(palette)
+  view.setMode(mode)
+  view.setPalette(palette)
+  if (player) {
+    player.setConfig(state.config.player, systemReducedMotion.matches)
+    player.setAmbient(state.ambient)
+    player.setTrack(state.track, state.lyricsStatus, state.lyrics)
+    player.setPlaying(clock.playing)
+  }
   startLoop()
 }
 
-/**
- * Frames per second: full rate only while a word is popping in; the slow ambient drift
- * looks the same at a lower rate and costs a fraction of the power. The desktop overlay
- * is capped lower because Windows composites transparent full-screen windows expensively.
- */
-const FRAME_RATE: Record<ShowOn, { busy: number; idle: number }> = {
-  lock: { busy: 60, idle: 24 },
-  always: { busy: 30, idle: 15 }
-}
-
-function render(songMs: number, wallMs: number): boolean {
-  const busy = style?.frame({ songMs, wallMs, width: window.innerWidth, height: window.innerHeight }) ?? false
-  if (mode === 'lock') lockClock.update(Date.now())
+function render(songMs: number, wallMs: number, settle = false): boolean {
+  const busy = view?.frame({ songMs, wallMs, width: window.innerWidth, height: window.innerHeight, settle }) ?? false
+  if (mode === 'lock' && !player) lockClock.update(Date.now())
   return busy
 }
 
-function loop(): void {
-  if (snapshotMode) {
+/** The loop stops in snapshot mode and while the window is hidden (e.g. the prewarmed lyrics screen). */
+const loopShouldStop = (): boolean => snapshotMode || document.hidden
+
+function loop(frameAt: number): void {
+  if (loopShouldStop()) {
     loopRunning = false
     return
   }
+  lastFrameAt = frameAt
   const started = performance.now()
   const songMs = clock.now(started, Date.now())
   const busy = render(songMs, started)
-  const fps = FRAME_RATE[mode][busy ? 'busy' : 'idle']
-  if (fps >= 60) {
-    requestAnimationFrame(loop)
+  const fps = targetFps(mode, busy, frameCap)
+  if (1000 / fps <= VSYNC_GATE_MAX_MS) {
+    // Full rate, or a frame-rate limit: draw on display refreshes, skipping the ones that come too soon.
+    const gate = (at: number): void => {
+      if (loopShouldStop()) {
+        loopRunning = false
+        return
+      }
+      if (frameDue(lastFrameAt, at, fps)) loop(at)
+      else requestAnimationFrame(gate)
+    }
+    requestAnimationFrame(gate)
     return
   }
   // Wait out most of the frame budget, then align the next frame to vsync — but never
@@ -113,10 +142,19 @@ function loop(): void {
 }
 
 function startLoop(): void {
-  if (loopRunning || snapshotMode) return
+  if (loopRunning || loopShouldStop()) return
   loopRunning = true
   requestAnimationFrame(loop)
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) startLoop()
+})
+
+// Windows' animation-effects switch calms the player down without a restart.
+systemReducedMotion.addEventListener('change', () => {
+  if (player && lastState) player.setConfig(lastState.config.player, systemReducedMotion.matches)
+})
 
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()))
 
@@ -132,18 +170,25 @@ api.onState((state) => {
 
 api.onAnchor((anchor) => {
   clock.setAnchor(anchor, performance.now(), Date.now())
+  player?.setPlaying(anchor.playing)
   startLoop()
+})
+
+api.onArtwork((artwork) => {
+  latestArtwork = artwork
+  player?.setArtwork(artwork)
 })
 
 api.onSnapshot((req) => {
   snapshotMode = true
+  document.body.dataset.snapshot = 'true'
   void fontsReady.then(async () => {
     if (pendingState) {
       applyState(pendingState)
       pendingState = null
     }
-    await style?.ready?.()
-    render(req.songMs, req.wallMs)
+    await view?.ready?.()
+    render(req.songMs, req.wallMs, true)
     await nextFrame()
     await nextFrame()
     api.snapshotDone(req.id)
@@ -155,6 +200,7 @@ let travelled = 0
 let lastMove: { x: number; y: number; at: number } | null = null
 window.addEventListener('mousemove', (e) => {
   if (mode !== 'lock') return
+  player?.poke(performance.now())
   const from = lastMove
   if (from && e.timeStamp - from.at < 600) travelled += Math.hypot(e.screenX - from.x, e.screenY - from.y)
   else travelled = 0
@@ -186,7 +232,9 @@ for (const type of ['mousedown', 'wheel', 'touchstart'] as const) {
 const hint = document.createElement('div')
 hint.className = 'stage-hint'
 document.body.append(hint)
-api.onSession(({ hint: text }) => {
+api.onSession(({ hint: text, watchOnly: watching }) => {
+  watchOnly = watching
+  player?.setWatchOnly(watching)
   hint.classList.remove('show')
   if (!text) return
   hint.textContent = text

@@ -1,7 +1,15 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DEFAULT_COLORS, HEX_COLOR } from '@shared/palette-defaults'
-import { STYLE_IDS, type ColorRole, type ShowOn, type StyleId } from '@shared/types'
+import {
+  STYLE_IDS,
+  type AnimationIntensity,
+  type ColorRole,
+  type FrameRateCap,
+  type FullscreenLayout,
+  type ShowOn,
+  type StyleId
+} from '@shared/types'
 import { makeDirSync } from './dirs'
 
 export type IdleMinutes = 0 | 1 | 2 | 5
@@ -30,10 +38,26 @@ export interface Settings {
   lockOnReturn: boolean
   /** Also ask NetEase (unofficial) for real per-word timing; LRCLIB stays the fallback. */
   wordLevel: boolean
+  /** Full-screen view: the LUMINA player, or the classic lyric style alone. */
+  layout: FullscreenLayout
+  /** Album-art ambient lighting behind the player. */
+  ambient: boolean
+  /** Ambient light strength, one of BRIGHTNESS_CHOICES. */
+  ambientBrightness: number
+  animation: AnimationIntensity
+  /** Calmer player: no drift, scrolling, lift or glow. Windows' own setting also turns this on. */
+  reducedMotion: boolean
+  /** Player lyric size multiplier, one of LYRIC_SCALE_CHOICES. */
+  lyricScale: number
+  frameRateCap: FrameRateCap
 }
 
 export const IDLE_CHOICES: readonly IdleMinutes[] = [0, 1, 2, 5]
 export const OFFSET_LIMIT_MS = 1000
+export const BRIGHTNESS_CHOICES: readonly number[] = [0.4, 0.7, 1]
+export const LYRIC_SCALE_CHOICES: readonly number[] = [0.85, 1, 1.15, 1.3]
+export const ANIMATION_CHOICES: readonly AnimationIntensity[] = ['low', 'medium', 'high']
+export const FRAME_RATE_CHOICES: readonly FrameRateCap[] = [0, 120, 60, 30]
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   version: 1,
@@ -48,10 +72,20 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   launchAtLogin: false,
   welcomed: false,
   lockOnReturn: false,
-  wordLevel: true
+  wordLevel: true,
+  layout: 'player',
+  ambient: true,
+  ambientBrightness: 0.7,
+  animation: 'medium',
+  reducedMotion: false,
+  lyricScale: 1,
+  frameRateCap: 0
 }) as Readonly<Settings>
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+const pickChoice = <T>(v: unknown, choices: readonly T[], fallback: T): T =>
+  choices.includes(v as T) ? (v as T) : fallback
 
 const pickColor = (v: unknown, fallback: string): string =>
   typeof v === 'string' && HEX_COLOR.test(v) ? v.toLowerCase() : fallback
@@ -81,7 +115,14 @@ export function sanitizeSettings(raw: unknown): Settings {
     launchAtLogin: typeof r.launchAtLogin === 'boolean' ? r.launchAtLogin : DEFAULT_SETTINGS.launchAtLogin,
     welcomed: typeof r.welcomed === 'boolean' ? r.welcomed : DEFAULT_SETTINGS.welcomed,
     lockOnReturn: typeof r.lockOnReturn === 'boolean' ? r.lockOnReturn : DEFAULT_SETTINGS.lockOnReturn,
-    wordLevel: typeof r.wordLevel === 'boolean' ? r.wordLevel : DEFAULT_SETTINGS.wordLevel
+    wordLevel: typeof r.wordLevel === 'boolean' ? r.wordLevel : DEFAULT_SETTINGS.wordLevel,
+    layout: r.layout === 'player' || r.layout === 'lyrics' ? r.layout : DEFAULT_SETTINGS.layout,
+    ambient: typeof r.ambient === 'boolean' ? r.ambient : DEFAULT_SETTINGS.ambient,
+    ambientBrightness: pickChoice(r.ambientBrightness, BRIGHTNESS_CHOICES, DEFAULT_SETTINGS.ambientBrightness),
+    animation: pickChoice(r.animation, ANIMATION_CHOICES, DEFAULT_SETTINGS.animation),
+    reducedMotion: typeof r.reducedMotion === 'boolean' ? r.reducedMotion : DEFAULT_SETTINGS.reducedMotion,
+    lyricScale: pickChoice(r.lyricScale, LYRIC_SCALE_CHOICES, DEFAULT_SETTINGS.lyricScale),
+    frameRateCap: pickChoice(r.frameRateCap, FRAME_RATE_CHOICES, DEFAULT_SETTINGS.frameRateCap)
   }
 }
 

@@ -81,11 +81,19 @@ function boxColor(C: number, h: number): string {
   return hex
 }
 
+/** One dominant colour of the cover, in OKLCH, with the share of the cover it covers. */
+export interface ArtColour {
+  L: number
+  C: number
+  h: number
+  share: number
+}
+
 /**
- * Album art (BGRA, as Electron's `nativeImage.toBitmap()` returns it on Windows) → the three
- * stage colours. Returns null for greyscale art so the caller keeps its current colours.
+ * Album art (BGRA, as Electron's `nativeImage.toBitmap()` returns it on Windows) → its dominant
+ * colours, largest first. Null when the bitmap is too small or mostly transparent.
  */
-export function extractPalette(bgra: Uint8Array, width: number, height: number): Palette | null {
+export function clusterArt(bgra: Uint8Array, width: number, height: number): ArtColour[] | null {
   if (width < 4 || height < 4 || bgra.length < width * height * 4) return null
 
   const step = Math.max(1, Math.floor(Math.max(width, height) / MAX_SIDE_SAMPLES))
@@ -99,9 +107,19 @@ export function extractPalette(bgra: Uint8Array, width: number, height: number):
   }
   if (points.length < 16) return null
 
-  const colours = kmeans(points)
+  return kmeans(points)
     .filter((c) => c.count > 0)
     .map((c) => ({ ...oklabToOklch(c), share: c.count / points.length }))
+    .sort((p, q) => q.share - p.share)
+}
+
+/**
+ * Album art → the three stage colours. Returns null for greyscale art so the caller keeps its
+ * current colours.
+ */
+export function extractPalette(bgra: Uint8Array, width: number, height: number): Palette | null {
+  const colours = clusterArt(bgra, width, height)
+  if (!colours) return null
   const vivid = colours.filter((c) => c.share >= MIN_SHARE && c.C >= MIN_CHROMA)
   if (!vivid.length) return null
 

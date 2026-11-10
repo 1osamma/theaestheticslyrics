@@ -1,7 +1,8 @@
-import { app, globalShortcut, nativeImage, screen, shell } from 'electron'
+import { app, globalShortcut, nativeImage, screen, shell, type NativeImage } from 'electron'
 import type { ColorsState } from '@shared/ipc'
+import type { AmbientPalette } from '@shared/lighting'
 import { DEFAULT_COLORS } from '@shared/palette-defaults'
-import type { LyricsStatus, Palette, PlaybackAnchor, TimedLyrics, TrackInfo } from '@shared/types'
+import type { LyricsStatus, Palette, PlaybackAnchor, PlayerConfig, TimedLyrics, TrackInfo } from '@shared/types'
 import { lockWorkstation } from './lock'
 import type { Log } from './logger'
 import { LyricsCache } from './lyrics/cache'
@@ -10,13 +11,14 @@ import { LrclibClient } from './lyrics/lrclib'
 import { NeteaseClient } from './lyrics/netease'
 import { LyricsService, type LyricsResult } from './lyrics/service'
 import { MediaWatcher, type ArtworkEvent } from './media/watcher'
+import { ambientFromPalette, extractAmbient } from './palette/ambient'
 import { extractPalette, paletteFromColors } from './palette/extract'
 import type { AppPaths } from './paths'
 import { PowerKeeper } from './power'
 import { SettingsStore, type Settings } from './settings'
 import { ColorsWindow } from './ui/colors-window'
 import { StageController } from './ui/stage-controller'
-import { TrayMenu, type TrayActions } from './ui/tray'
+import { TrayMenu, type PlayerSettings, type TrayActions } from './ui/tray'
 
 export const HOTKEY = 'CommandOrControl+Alt+L'
 /** LRCLIB asks every client to name itself and link to its homepage. */
@@ -24,6 +26,8 @@ const HOMEPAGE = 'https://github.com/darshanseenivasakumar/theaestheticslyrics'
 /** Players publish title/artist/album in steps; wait for them to settle before looking up lyrics. */
 const TRACK_SETTLE_MS = 350
 const ERROR_RETRY_MS = 2 * 60 * 1000
+/** The player shows art at up to ~40% of a 1440p screen; larger covers are scaled down to this. */
+const ARTWORK_MAX_SIDE = 1024
 
 export interface LaunchOptions {
   /** Opened by the user (desktop icon, Start menu): show the lyrics right away. */
@@ -54,6 +58,9 @@ export class AppController {
   private timed: TimedLyrics | null = null
   private status: LyricsStatus = 'idle'
   private albumPalette: Palette | null = null
+  private albumAmbient: AmbientPalette | null = null
+  /** Chromium composites on the GPU; without it the player drops its costlier effects. */
+  private gpu = true
   private health: { ok: boolean; message?: string } = { ok: true }
   private hotkeyOk = false
   private lookupToken = 0
@@ -81,6 +88,9 @@ export class AppController {
       wordLevel: { client: new NeteaseClient(), enabled: () => this.settings.get().wordLevel }
     })
     this.lastWordLevel = this.settings.get().wordLevel
+    const compositing = app.getGPUFeatureStatus().gpu_compositing ?? ''
+    this.gpu = compositing.startsWith('enabled')
+    if (!this.gpu) this.log(`gpu: compositing is ${compositing || 'unknown'}, the player uses its lightweight look`)
     this.power = new PowerKeeper(this.log)
     this.stage = new StageController({
       log: this.log,
@@ -128,7 +138,7 @@ export class AppController {
 
     if (!this.settings.get().welcomed) {
       this.tray.balloon(
-        'theaestheticslyrics is running',
+        'LUMINA is running',
         'Play something in Spotify or Apple Music, then press Ctrl+Alt+L for full-screen lyrics (Esc closes). All settings are in the tray icon.'
       )
       this.settings.update({ welcomed: true })
@@ -166,7 +176,9 @@ export class AppController {
     this.track = track
     this.timed = null
     this.albumPalette = null
+    this.albumAmbient = null
     this.anchor = null
+    this.stage.setArtwork(null)
     const token = ++this.lookupToken
     this.status = track?.title ? 'searching' : 'idle'
     this.log(
@@ -219,13 +231,16 @@ export class AppController {
       if (image.isEmpty()) return
       const small = image.resize({ width: 64, height: 64, quality: 'good' })
       const { width, height } = small.getSize()
-      this.albumPalette = extractPalette(small.toBitmap(), width, height)
+      const bitmap = small.toBitmap()
+      this.albumPalette = extractPalette(bitmap, width, height)
+      this.albumAmbient = extractAmbient(bitmap, width, height)
+      this.stage.setArtwork({ trackKey: art.key, dataUrl: artworkDataUrl(image) })
     } catch (err) {
       this.log(`palette: could not read album art (${String(err)})`)
       return
     }
-    if (this.settings.get().autoSync) this.refresh()
-    else this.colors.push(this.colorsState())
+    // The player's ambient light follows the new art even when the lyric colours do not.
+    this.refresh()
   }
 
   private onSettings(s: Settings): void {
@@ -250,6 +265,18 @@ export class AppController {
     return s.autoSync && this.albumPalette ? this.albumPalette : paletteFromColors(s.colors)
   }
 
+  private playerConfig(): PlayerConfig {
+    const s = this.settings.get()
+    return {
+      ambient: s.ambient,
+      brightness: s.ambientBrightness,
+      animation: s.animation,
+      reducedMotion: s.reducedMotion,
+      lyricScale: s.lyricScale,
+      gpu: this.gpu
+    }
+  }
+
   private colorsState(): ColorsState {
     const s = this.settings.get()
     return { autoSync: s.autoSync, colors: { ...s.colors }, effective: this.palette() }
@@ -259,8 +286,20 @@ export class AppController {
     const s = this.settings.get()
     const playing = this.anchor?.playing ?? false
     const hasLyrics = this.status === 'found' && this.timed !== null
+    const palette = this.palette()
     this.stage.update(
-      { track: this.track, lyrics: hasLyrics ? this.timed : null, style: s.style, palette: this.palette(), offsetMs: s.offsetMs },
+      {
+        track: this.track,
+        lyrics: hasLyrics ? this.timed : null,
+        lyricsStatus: this.status,
+        ambient: this.albumAmbient ?? ambientFromPalette(palette),
+        style: s.style,
+        palette,
+        offsetMs: s.offsetMs,
+        layout: s.layout,
+        player: this.playerConfig(),
+        frameRateCap: s.frameRateCap
+      },
       { playing, hasLyrics }
     )
     this.power.update(playing && hasLyrics)
@@ -310,6 +349,7 @@ export class AppController {
         void this.local.ensureDir().then(() => shell.openPath(this.paths.lyricsDir))
       },
       setLaunchAtLogin: (launchAtLogin) => this.settings.update({ launchAtLogin }),
+      setPlayer: (patch: Partial<PlayerSettings>) => this.settings.update(patch),
       quit: () => app.quit()
     }
   }
@@ -337,4 +377,13 @@ export class AppController {
     }
     if (d.quitAfterMs !== undefined) this.later(d.quitAfterMs, () => app.quit())
   }
+}
+
+/** Re-encodes album art for the player page: no larger than it is ever shown, as a JPEG data URL. */
+function artworkDataUrl(image: NativeImage): string {
+  const { width, height } = image.getSize()
+  const scale = Math.min(1, ARTWORK_MAX_SIDE / Math.max(width, height))
+  const sized =
+    scale < 1 ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : image
+  return `data:image/jpeg;base64,${sized.toJPEG(92).toString('base64')}`
 }

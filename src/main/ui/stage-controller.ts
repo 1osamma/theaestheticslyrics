@@ -1,7 +1,19 @@
 import { writeFileSync } from 'node:fs'
 import { BrowserWindow, app, ipcMain, powerMonitor, screen, type Display, type IpcMainEvent } from 'electron'
 import { IPC, type DismissRequest, type StageSessionInfo, type StageState } from '@shared/ipc'
-import type { Palette, PlaybackAnchor, StyleId, TimedLyrics, TrackInfo } from '@shared/types'
+import type { AmbientPalette } from '@shared/lighting'
+import type {
+  Artwork,
+  FrameRateCap,
+  FullscreenLayout,
+  LyricsStatus,
+  Palette,
+  PlaybackAnchor,
+  PlayerConfig,
+  StyleId,
+  TimedLyrics,
+  TrackInfo
+} from '@shared/types'
 import type { Log } from '../logger'
 import type { Settings } from '../settings'
 import { LOAD_STUCK_MS, LockSession, alwaysOverlayVisible, idleShouldOpen, loadedWithin, type LockReason } from './stage-logic'
@@ -19,9 +31,14 @@ interface StageWindow {
 export interface StageContent {
   track: TrackInfo | null
   lyrics: TimedLyrics | null
+  lyricsStatus: LyricsStatus
+  ambient: AmbientPalette
   style: StyleId
   palette: Palette
   offsetMs: number
+  layout: FullscreenLayout
+  player: PlayerConfig
+  frameRateCap: FrameRateCap
 }
 
 export interface StageControllerDeps {
@@ -45,6 +62,7 @@ export class StageController {
   private overlayWin: StageWindow | null = null
   private content: StageContent | null = null
   private anchor: PlaybackAnchor | null = null
+  private artwork: Artwork | null = null
   private session: LockSession | null = null
   private playing = false
   private hasLyrics = false
@@ -84,6 +102,14 @@ export class StageController {
   updateAnchor(anchor: PlaybackAnchor): void {
     this.anchor = anchor
     for (const sw of this.windows()) sw.win.webContents.send(IPC.stageAnchor, anchor)
+  }
+
+  /** Album art for the player. Only the lock-style screen shows it, so the overlay never receives it. */
+  setArtwork(artwork: Artwork | null): void {
+    if (this.artwork?.trackKey === artwork?.trackKey && this.artwork?.dataUrl === artwork?.dataUrl) return
+    this.artwork = artwork
+    const lock = this.lockWin
+    if (lock && !lock.win.isDestroyed()) lock.win.webContents.send(IPC.stageArtwork, artwork)
   }
 
   /** Display or mode changed in settings. */
@@ -318,7 +344,7 @@ export class StageController {
       focusable: kind === 'lock',
       transparent: kind === 'overlay',
       backgroundColor: kind === 'lock' ? '#000000' : '#00000000',
-      title: 'theaestheticslyrics',
+      title: 'LUMINA',
       webPreferences: secureWebPreferences()
     })
     win.setAlwaysOnTop(true, 'screen-saver')
@@ -356,6 +382,7 @@ export class StageController {
           if (win.isDestroyed()) return false
           this.sendState(sw)
           if (this.anchor) win.webContents.send(IPC.stageAnchor, this.anchor)
+          if (kind === 'lock' && this.artwork) win.webContents.send(IPC.stageArtwork, this.artwork)
           return true
         },
         (err: unknown) => {
@@ -382,7 +409,17 @@ export class StageController {
     const state: StageState = {
       track: c.track,
       lyrics: c.lyrics,
-      config: { style: c.style, palette: c.palette, offsetMs: c.offsetMs, mode: sw.kind === 'lock' ? 'lock' : 'always' }
+      lyricsStatus: c.lyricsStatus,
+      ambient: c.ambient,
+      config: {
+        style: c.style,
+        palette: c.palette,
+        offsetMs: c.offsetMs,
+        mode: sw.kind === 'lock' ? 'lock' : 'always',
+        layout: c.layout,
+        player: c.player,
+        frameRateCap: c.frameRateCap
+      }
     }
     sw.win.webContents.send(IPC.stageState, state)
   }
@@ -427,7 +464,8 @@ export class StageController {
 
   private sendSessionInfo(session: LockSession): void {
     const info: StageSessionInfo = {
-      hint: session.reason === 'hotkey' && !session.closesOnAnyInput ? 'Press Esc to close' : null
+      hint: session.reason === 'hotkey' && !session.closesOnAnyInput ? 'Press Esc to close' : null,
+      watchOnly: !session.closesOnAnyInput
     }
     const win = this.lockWin?.win
     if (win && !win.isDestroyed()) win.webContents.send(IPC.stageSession, info)

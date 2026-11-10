@@ -68,6 +68,87 @@ describe('sanitizeSettings', () => {
   })
 })
 
+describe('LUMINA player settings', () => {
+  it('opens the LUMINA player with ambient light by default, at the display refresh rate', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      layout: 'player',
+      ambient: true,
+      ambientBrightness: 0.7,
+      animation: 'medium',
+      reducedMotion: false,
+      lyricScale: 1,
+      frameRateCap: 0
+    })
+  })
+
+  it('loads a settings file from before LUMINA unchanged, adding only the new defaults', () => {
+    const old = {
+      version: 1,
+      style: 'visual',
+      showOn: 'always',
+      displayId: 7,
+      autoSync: true,
+      colors: { lyric: '#112233', highlight: '#445566', secondary: '#778899' },
+      offsetMs: 250,
+      idleMinutes: 5,
+      allPlayers: true,
+      launchAtLogin: true,
+      welcomed: true,
+      lockOnReturn: true,
+      wordLevel: false
+    }
+    const s = sanitizeSettings(old)
+    expect(s).toMatchObject(old)
+    expect(s.layout).toBe(DEFAULT_SETTINGS.layout)
+    expect(s.frameRateCap).toBe(DEFAULT_SETTINGS.frameRateCap)
+  })
+
+  it('keeps valid choices and repairs invalid ones field by field', () => {
+    const ok = sanitizeSettings({
+      layout: 'lyrics',
+      ambient: false,
+      ambientBrightness: 1,
+      animation: 'high',
+      reducedMotion: true,
+      lyricScale: 1.3,
+      frameRateCap: 60
+    })
+    expect(ok).toMatchObject({
+      layout: 'lyrics',
+      ambient: false,
+      ambientBrightness: 1,
+      animation: 'high',
+      reducedMotion: true,
+      lyricScale: 1.3,
+      frameRateCap: 60
+    })
+    const bad = sanitizeSettings({
+      layout: 'grid',
+      ambient: 'yes',
+      ambientBrightness: 0.55,
+      animation: 'wild',
+      reducedMotion: 1,
+      lyricScale: 4,
+      frameRateCap: 240
+    })
+    expect(bad).toMatchObject({
+      layout: DEFAULT_SETTINGS.layout,
+      ambient: DEFAULT_SETTINGS.ambient,
+      ambientBrightness: DEFAULT_SETTINGS.ambientBrightness,
+      animation: DEFAULT_SETTINGS.animation,
+      reducedMotion: DEFAULT_SETTINGS.reducedMotion,
+      lyricScale: DEFAULT_SETTINGS.lyricScale,
+      frameRateCap: DEFAULT_SETTINGS.frameRateCap
+    })
+  })
+
+  it('persists player settings', () => {
+    const file = tempFile()
+    new SettingsStore(file).update({ layout: 'lyrics', frameRateCap: 120, lyricScale: 1.15 })
+    expect(new SettingsStore(file).get()).toMatchObject({ layout: 'lyrics', frameRateCap: 120, lyricScale: 1.15 })
+  })
+})
+
 describe('SettingsStore', () => {
   it('persists updates across instances', () => {
     const file = tempFile()

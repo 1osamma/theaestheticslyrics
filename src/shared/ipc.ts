@@ -1,8 +1,23 @@
-import type { ColorRole, Palette, PlaybackAnchor, ShowOn, StyleId, TimedLyrics, TrackInfo } from './types'
+import type { AmbientPalette } from './lighting'
+import type {
+  Artwork,
+  ColorRole,
+  FrameRateCap,
+  FullscreenLayout,
+  LyricsStatus,
+  Palette,
+  PlaybackAnchor,
+  PlayerConfig,
+  ShowOn,
+  StyleId,
+  TimedLyrics,
+  TrackInfo
+} from './types'
 
 export const IPC = {
   stageState: 'stage:state',
   stageAnchor: 'stage:anchor',
+  stageArtwork: 'stage:artwork',
   stageDismiss: 'stage:dismiss',
   stageSession: 'stage:session',
   stageSnapshot: 'stage:snapshot',
@@ -19,12 +34,18 @@ export interface StageConfig {
   mode: ShowOn
   palette: Palette
   offsetMs: number
+  /** Only the lock-style screen uses the player; the overlay always draws `style`. */
+  layout: FullscreenLayout
+  player: PlayerConfig
+  frameRateCap: FrameRateCap
 }
 
 /** Everything the stage needs besides the moving playback clock. */
 export interface StageState {
   track: TrackInfo | null
   lyrics: TimedLyrics | null
+  lyricsStatus: LyricsStatus
+  ambient: AmbientPalette
   config: StageConfig
 }
 
@@ -46,6 +67,8 @@ export interface DismissRequest {
 export interface StageSessionInfo {
   /** A short on-screen tip (e.g. "Press Esc to close"), or null. */
   hint: string | null
+  /** Stray input is ignored (only Esc closes), so the screen may show the cursor and chrome on mouse moves. */
+  watchOnly: boolean
 }
 
 export interface ColorsState {
@@ -58,6 +81,8 @@ export interface ColorsState {
 export interface StageApi {
   onState(cb: (state: StageState) => void): () => void
   onAnchor(cb: (anchor: PlaybackAnchor) => void): () => void
+  /** Album art for the current track, or null when there is none. Sent only when it changes. */
+  onArtwork(cb: (artwork: Artwork | null) => void): () => void
   onSnapshot(cb: (req: SnapshotRequest) => void): () => void
   onSession(cb: (info: StageSessionInfo) => void): () => void
   snapshotDone(id: number): void
