@@ -51,12 +51,9 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
      `ActivateCompleted`; LUMINA calls them after the callback signals.
    - The other likely cause is the PC's audio environment (driver, audio effects, a virtual output
      device such as Sonar or Nahimic). Worth checking with the user.
-2. **Spotify starts playing about 4 s after the lyrics screen opens, and pauses about 3 s after the
-   app quits** (seen in every lyrics-screen test run today, including with lighting Off, so it isn't
-   audio capture). Not seen in Phase 1 runs earlier the same day. **Ask the user whether they were
-   pressing play and pause during the tests before investigating.** If they weren't, suspect the
-   lyrics-screen path (focus, `PowerKeeper`, input handlers in `src/renderer/src/stage/main.ts`) or
-   a second running LUMINA instance (the user's own dev instance held Ctrl+Alt+L throughout).
+2. **Resolved, not a bug:** during the Phase 2 test runs Spotify started playing a few seconds after
+   the lyrics screen opened and paused after the app quit. The user confirmed they were pressing
+   play and pause themselves. Nothing to investigate.
 3. **Not exercised live:**
    - real output-device switching (Bluetooth, USB);
    - Spotify closing and restarting during capture;
@@ -114,8 +111,8 @@ All measurements were taken with live **system** audio, in a throwaway profile (
 
 ## Exact next steps
 
-1. **Ask the user** about the Spotify play/pause observation (above) and whether they use a
-   virtual or enhanced audio device.
+1. **Ask the user** whether they use a virtual or enhanced audio device (Sonar, Nahimic, Dolby,
+   Voicemeeter and similar). It is the most likely reason process loopback is silent.
 2. **Optionally**, one targeted try at Spotify-only capture: move `Initialize`, `GetService` and
    `SetEventHandle` into `ActivationHandler.ActivateCompleted` in `native/lumina-helper/Capture.cs`,
    mirroring Microsoft's sample, then run `npm run check:audio` **while Spotify plays**. If it is
