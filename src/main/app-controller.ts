@@ -563,7 +563,9 @@ export class AppController {
   private applyLoginItem(s: Settings): void {
     if (!app.isPackaged || this.loginItemApplied === s.launchAtLogin) return
     // --autostart: starting with Windows stays quietly in the tray instead of opening the lyrics.
-    app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, path: process.execPath, args: ['--autostart'] })
+    // The portable build runs from a temporary copy; start the portable EXE itself at login.
+    const exe = process.env['PORTABLE_EXECUTABLE_FILE'] || process.execPath
+    app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, path: exe, args: ['--autostart'] })
     this.loginItemApplied = s.launchAtLogin
     this.log(`app: start with Windows ${s.launchAtLogin ? 'on' : 'off'}`)
   }

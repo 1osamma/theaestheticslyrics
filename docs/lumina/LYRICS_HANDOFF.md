@@ -149,6 +149,22 @@ before it was measured and is **not** in the code.
 - Possible further GPU savings, deliberately not pursued (no visible problem): a shorter animation
   lookahead, or sharing one glow layer per line.
 
+## Windows packages (2026-11-11)
+
+`npm run dist` (electron-builder 26.17.0, config `electron-builder.yml`, installer page
+`build/installer.nsh`) writes to `release/`:
+- `LUMINA-Portable-1.0.1-x64.exe`: single file, no install (unpacks to a temp folder on each start).
+- `LUMINA-Setup-1.0.1-x64.exe`: per-user installer with a choice of folder and optional desktop and
+  Start menu shortcuts ("LUMINA"); launches after install; uninstall keeps settings.
+Both use `%APPDATA%	heaestheticslyrics`, the same settings as before. Not code-signed, so
+SmartScreen shows "More info → Run anyway". The media bridge runs Windows' built-in PowerShell
+(part of Windows 11, nothing to install).
+Verified: the portable EXE started with a throwaway profile, detected Spotify, found NetEase word
+timing, rendered the player, started audio capture with the bundled helper, opened the settings
+window and quit cleanly. **Not run:** the installer itself (it creates shortcuts and an uninstall
+entry), the overlay and edge lighting in the packaged build, and "Start with Windows" from the
+portable EXE.
+
 ## Exact next steps
 
 1. **The user's priority now: the visual quality, creativity and customisation of the lyric

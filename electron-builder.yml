@@ -1,0 +1,46 @@
+# Windows x64 installer and single-file portable EXE: `npm run dist` (output in release/).
+# The app keeps the name "theaestheticslyrics", so settings stay in %APPDATA%\theaestheticslyrics
+# whichever build runs (installed, portable or development).
+appId: theaestheticslyrics # must match app.setAppUserModelId in src/main/index.ts
+productName: theaestheticslyrics
+copyright: Copyright © 2026 darshanseenivasakumar
+directories:
+  output: release
+  buildResources: build
+# electron-vite bundles every library into out/, so nothing from node_modules ships.
+files:
+  - out/**
+  - package.json
+  - '!node_modules/**'
+asar: true
+npmRebuild: false
+# PowerShell cannot read files inside an asar archive and executables cannot run from one, so the
+# media bridge and the audio helper ship beside it (process.resourcesPath).
+extraResources:
+  - { from: resources/smtc-bridge.ps1, to: smtc-bridge.ps1 }
+  - { from: resources/lumina-helper.exe, to: lumina-helper.exe }
+  - { from: resources/tray.ico, to: tray.ico }
+  - { from: resources/icon.ico, to: icon.ico }
+extraFiles:
+  - { from: LICENSE, to: LICENSE.theaestheticslyrics.txt }
+  - { from: THIRD_PARTY_NOTICES.md, to: THIRD_PARTY_NOTICES.txt }
+win:
+  executableName: theaestheticslyrics
+  icon: resources/icon.ico
+  target:
+    - { target: nsis, arch: [x64] }
+    - { target: portable, arch: [x64] }
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Shortcuts are optional: a page with two checkboxes (build/installer.nsh) creates them.
+  createDesktopShortcut: false
+  createStartMenuShortcut: false
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  include: build/installer.nsh
+  artifactName: LUMINA-Setup-${version}-x64.${ext}
+  uninstallDisplayName: LUMINA (theaestheticslyrics)
+portable:
+  artifactName: LUMINA-Portable-${version}-x64.${ext}
