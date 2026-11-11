@@ -104,6 +104,13 @@ the pages' own counters (`lightLevels` in the `--perf-file` report).
 | **Fixed:** faint rectangle at the end of the edge glow | The overlay shader hard-cut light below 1.5/255 to transparent, which drew a one-code-value edge about 150 px in. It now fades the last few code values out (`smoothstep`) in `src/renderer/src/lighting/webgl-renderer.ts`; the live re-capture shows a smooth falloff. |
 | **Lighting Settings window** | Reviewed in a capture: live status (audio mode, edges, renderer), mode selector, toggles and sliders all show the saved state. **Fixed:** the light system scrollbar now matches the dark panel (`lighting.css`). |
 
+**Colourful album** (same day): Kanye West, "I Wonder" (*Graduation*, a vivid pink and purple cover).
+
+| Check | Result |
+|---|---|
+| Fullscreen player, 10 s | Violet-magenta light from the cover, bloom behind the art; the Spotify dot, progress bar and active-word glow take the pink accent; lyrics column stays readable. WebGL, light 59.8 FPS, no long tasks; 24 beat pulses in 10 s (vs 9 for the slow song); bloom median 0.34, p95 0.40 |
+| Edge lighting, 10 s | Magenta and violet glow on the left, right and bottom, smooth falloff, centre untouched; WebGL 59.8 FPS, frame p99 16.8 ms, no long tasks; bloom median 0.29 (max 0.44), edge 0.57 (max 0.70). A quieter section lowered the atmosphere average to 0.37 (median 0.41), so quiet passages go darker as designed |
+
 New debug tools used for this (kept):
 - `--capture-series=<prefix> --capture-start=<ms> --capture-every=<ms> --capture-count=<n>` saves
   the visible lyrics screen as `<prefix>-stage-N.png`, and each edge window as `<prefix>-edge-N.png`
@@ -161,9 +168,8 @@ All measurements were taken with live **system** audio, in a throwaway profile (
    was verified working. Don't ask again. Spotify only stays available in Lighting Settings. If this
    ever changes, edit `DEFAULT_SETTINGS.audioSource` in `src/main/settings.ts`, its test, and the docs.
 3. (Done 2026-11-11: live visual tests of the fullscreen lighting, the edge overlay and the
-   Lighting Settings window; two small visual fixes. See "Live visual testing".) Optional: a look
-   with a **colourful** album, since today's track had a greyscale cover; ask the user to play one
-   and repeat run A/B from "Commands to resume".
+   Lighting Settings window, with a greyscale and a colourful album; two small visual fixes. See
+   "Live visual testing".)
 4. Live checks not yet done: Bluetooth or USB device switching, Spotify close/restart during
    capture, a real full-screen game, a second monitor if available.
 5. Optional optimisation: a cheaper Phase 1 active-line word fill (the main GPU cost while playing).
