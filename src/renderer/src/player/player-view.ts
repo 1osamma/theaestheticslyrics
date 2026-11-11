@@ -260,7 +260,7 @@ export function createPlayerView(): PlayerView {
       wallMs
     })
     drawn = copyLight(frame)
-    perf?.light(wallMs)
+    perf?.light(wallMs, frame)
   }
 
   function updateMessage(): void {

@@ -112,9 +112,10 @@ void main() {
     outColor = vec4(vec3(0.0196, 0.0196, 0.0275) + light + dither, 1.0);
   } else {
     // Premultiplied: unlit pixels are exactly transparent, so the desktop stays untouched (true black stays black).
+    // The last few code values of the tail fade out smoothly; a hard cut there showed as a faint rectangle.
     float a = max(light.r, max(light.g, light.b));
-    float lit = step(1.5 / 255.0, a);
-    light = clamp(light + dither * lit, 0.0, 1.0) * lit;
+    float lit = smoothstep(0.5 / 255.0, 4.0 / 255.0, a);
+    light = clamp((light + dither) * lit, 0.0, 1.0);
     outColor = vec4(light, max(light.r, max(light.g, light.b)));
   }
 }`

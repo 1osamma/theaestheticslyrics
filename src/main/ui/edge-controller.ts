@@ -1,4 +1,5 @@
-import { BrowserWindow, app, screen, type Display } from 'electron'
+import { writeFileSync } from 'node:fs'
+import { BrowserWindow, app, nativeImage, screen, type Display } from 'electron'
 import type { AudioAnalysisFrame } from '@shared/audio-frame'
 import { IPC, type EdgeState } from '@shared/ipc'
 import type { EdgeDisplays } from '@shared/lighting'
@@ -92,6 +93,28 @@ export class EdgeController {
       out.push(await ew.win.webContents.executeJavaScript('window.__luminaPerf?.read() ?? null').catch(() => null))
     }
     return out
+  }
+
+  /**
+   * Debug: saves the first visible edge window as a transparent PNG, plus `<file>-preview.png`, the
+   * same light composited over a dark desktop colour the way Windows blends it.
+   */
+  async capture(file: string): Promise<boolean> {
+    const ew = [...this.windows.values()].find((w) => !w.win.isDestroyed() && w.win.isVisible())
+    if (!ew) return false
+    const image = await ew.win.webContents.capturePage()
+    writeFileSync(file, image.toPNG())
+    const { width, height } = image.getSize()
+    const src = image.toBitmap() // BGRA, premultiplied
+    const out = Buffer.alloc(src.length)
+    const bg = [0x1c, 0x16, 0x14] // #14161c as B, G, R
+    for (let i = 0; i < src.length; i += 4) {
+      const a = src[i + 3]! / 255
+      for (let c = 0; c < 3; c++) out[i + c] = Math.min(255, Math.round(src[i + c]! + bg[c]! * (1 - a)))
+      out[i + 3] = 255
+    }
+    writeFileSync(file.replace(/\.png$/i, '') + '-preview.png', nativeImage.createFromBitmap(out, { width, height }).toPNG())
+    return true
   }
 
   /** Native window handles, for tests that probe the window styles. */

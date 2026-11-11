@@ -300,3 +300,22 @@ select {
   color: var(--lm-text-1);
   font: inherit;
 }
+
+/* A slim dark scrollbar that matches the panel instead of the light system default. */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid var(--lm-surface-1);
+  border-radius: 5px;
+  background: var(--lm-surface-3);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2c2c36;
+}

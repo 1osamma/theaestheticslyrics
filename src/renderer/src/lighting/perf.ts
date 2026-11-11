@@ -36,11 +36,18 @@ class Ring {
   }
 }
 
+/** The light levels drawn in one frame (the engine's output), for responsiveness checks. */
+export interface LightLevels {
+  atmosphere: number
+  bloom: number
+  edge: number
+}
+
 export interface PerfCounters {
   /** A frame was drawn at `at` (rAF time) taking `workMs` of script time. */
   frame(at: number, workMs: number): void
-  /** Light was drawn this frame (the light can run below the page's frame rate). */
-  light(at: number): void
+  /** Light was drawn this frame (the light can run below the page's frame rate), with its levels. */
+  light(at: number, levels?: LightLevels): void
   audioLatency(ms: number): void
   setRenderer(kind: string): void
 }
@@ -48,6 +55,9 @@ export interface PerfCounters {
 export function installPerf(page: string): PerfCounters {
   const intervals = new Ring()
   const lightIntervals = new Ring()
+  const atmosphere = new Ring()
+  const bloom = new Ring()
+  const edge = new Ring()
   const work = new Ring()
   const latency = new Ring()
   let lastFrame: number | null = null
@@ -73,6 +83,9 @@ export function installPerf(page: string): PerfCounters {
   const reset = (): void => {
     intervals.clear()
     lightIntervals.clear()
+    atmosphere.clear()
+    bloom.clear()
+    edge.clear()
     work.clear()
     latency.clear()
     lastFrame = lastLight = null
@@ -92,6 +105,7 @@ export function installPerf(page: string): PerfCounters {
         lightFps: Math.round((lights / seconds) * 10) / 10,
         frameIntervalMs: intervals.stats(),
         lightIntervalMs: lightIntervals.stats(),
+        lightLevels: { atmosphere: atmosphere.stats(), bloom: bloom.stats(), edge: edge.stats() },
         scriptMsPerFrame: work.stats(),
         longTasks: { count: longTasks, totalMs: Math.round(longTaskMs) },
         audioDeliveryLatencyMs: latency.stats(),
@@ -108,7 +122,12 @@ export function installPerf(page: string): PerfCounters {
       lastFrame = at
       work.push(workMs)
     },
-    light(at) {
+    light(at, levels) {
+      if (levels) {
+        atmosphere.push(levels.atmosphere)
+        bloom.push(levels.bloom)
+        edge.push(levels.edge)
+      }
       lights++
       if (lastLight !== null) lightIntervals.push(at - lastLight)
       lastLight = at

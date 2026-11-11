@@ -43,7 +43,7 @@ function draw(now: number, frame: LightFrame): void {
     edgeShape: [config.edgeThickness, config.edgeSoftness, config.edgeSpread],
     wallMs: now
   })
-  perf.light(now)
+  perf.light(now, frame)
 }
 
 function loop(at: number): void {

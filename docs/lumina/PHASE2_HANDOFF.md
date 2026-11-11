@@ -89,6 +89,28 @@ Spotify playing above 50% volume. Both sources captured **at the same moment** w
   below the −72 dBFS band floor. That's correct for the song, not a capture fault.
 - No analysis, sensitivity or threshold changes were made.
 
+## Live visual testing (2026-11-11)
+
+Real app, throwaway profile, Spotify playing "Don't Let Me Go" (Cigarettes After Sex, greyscale
+cover "Cry"), default source All desktop audio, default lighting settings. Light levels come from
+the pages' own counters (`lightLevels` in the `--perf-file` report).
+
+| Check | Result |
+|---|---|
+| **Fullscreen player**, 10 s | WebGL; light 59.8 FPS at the 60 target while the page ran 228 FPS (lyric word fill at the panel's rate); no long tasks; GPU-3D 3.2% avg / 7.3% max; audio 60 frames/s, 9 beat pulses |
+| Player light response | bloom median 0.25, p95 0.42, max 0.46 (moves with the music); atmosphere 0.42–0.44 (steady loudness, by design); cover sharp, lyrics word-synced and readable, light restrained to soft grey for the greyscale cover |
+| **Desktop edge lighting**, 10 s | WebGL 60.0 FPS, frame p99 16.8 ms, script 0.06 ms per frame, no long tasks, GPU-3D 2.0% avg / 4.1% max; bloom 0.23–0.45, edge glow 0.54–0.70 with the music |
+| Edge window behaviour | Re-probed: `WS_EX_TRANSPARENT | LAYERED | TOOLWINDOW | NOACTIVATE | TOPMOST`, hit test passes through to the window underneath |
+| **Fixed:** faint rectangle at the end of the edge glow | The overlay shader hard-cut light below 1.5/255 to transparent, which drew a one-code-value edge about 150 px in. It now fades the last few code values out (`smoothstep`) in `src/renderer/src/lighting/webgl-renderer.ts`; the live re-capture shows a smooth falloff. |
+| **Lighting Settings window** | Reviewed in a capture: live status (audio mode, edges, renderer), mode selector, toggles and sliders all show the saved state. **Fixed:** the light system scrollbar now matches the dark panel (`lighting.css`). |
+
+New debug tools used for this (kept):
+- `--capture-series=<prefix> --capture-start=<ms> --capture-every=<ms> --capture-count=<n>` saves
+  the visible lyrics screen as `<prefix>-stage-N.png`, and each edge window as `<prefix>-edge-N.png`
+  plus `<prefix>-edge-N-preview.png` (composited over a dark desktop, no screenshot of the real
+  desktop).
+- The `--perf-file` report includes `lightLevels` (atmosphere, bloom, edge stats).
+
 ## Tests and measurements (latest)
 
 | Check | Result |
@@ -138,8 +160,10 @@ All measurements were taken with live **system** audio, in a throwaway profile (
 2. **Decided:** the user chose to keep **All desktop audio** as the default source, after Spotify-only
    was verified working. Don't ask again. Spotify only stays available in Lighting Settings. If this
    ever changes, edit `DEFAULT_SETTINGS.audioSource` in `src/main/settings.ts`, its test, and the docs.
-3. Have the user review the Lighting Settings window (`npm run dev`, tray → LUMINA Lighting →
-   Lighting Settings…) and the edge glow on their desktop; tune defaults if needed.
+3. (Done 2026-11-11: live visual tests of the fullscreen lighting, the edge overlay and the
+   Lighting Settings window; two small visual fixes. See "Live visual testing".) Optional: a look
+   with a **colourful** album, since today's track had a greyscale cover; ask the user to play one
+   and repeat run A/B from "Commands to resume".
 4. Live checks not yet done: Bluetooth or USB device switching, Spotify close/restart during
    capture, a real full-screen game, a second monitor if available.
 5. Optional optimisation: a cheaper Phase 1 active-line word fill (the main GPU cost while playing).
@@ -169,3 +193,5 @@ both sources.
 - `--edge-probe-after=<ms>` logs the edge window handles; then run
   `resources\lumina-helper.exe probe <hwnd> <x> <y>` to check styles and click-through.
 - `--capture-lighting=<png>` saves the Lighting Settings window.
+- Run A (player): `--open-lock-after=2500 --perf-after=4000 --perf-window=10000 --perf-file=<json> --capture-series=<prefix> --capture-start=15000 --capture-every=700 --capture-count=6 --quit-after=21000`
+- Run B (edge, settings `{"version":2,"edgeLighting":true}`): `--edge-probe-after=3000 --perf-after=3500 --perf-window=10000 --perf-file=<json> --capture-series=<prefix> --capture-start=14500 --capture-every=600 --capture-count=6 --quit-after=22000`

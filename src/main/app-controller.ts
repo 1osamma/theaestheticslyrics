@@ -54,6 +54,11 @@ export interface DebugOptions {
   quitAfterMs?: number
   /** Saves the LUMINA Lighting window. */
   lightingCaptureFile?: string
+  /** Saves `<prefix>-stage-N.png` / `<prefix>-edge-N.png` every `captureEveryMs`, `captureCount` times. */
+  captureSeries?: string
+  captureStartMs?: number
+  captureEveryMs?: number
+  captureCount?: number
   /** Logs edge window handles and bounds (for style and click-through probes). */
   edgeProbeAfterMs?: number
   /** Writes renderer and process performance numbers gathered over `perfWindowMs`. */
@@ -609,6 +614,17 @@ export class AppController {
       this.later(3000, () => {
         void this.lightingWin.capture(file).then((ok) => this.log(ok ? `capture: saved ${file}` : 'capture: lighting window not visible'))
       })
+    }
+    if (d.captureSeries) {
+      const prefix = d.captureSeries
+      const start = d.captureStartMs ?? 5000
+      const every = d.captureEveryMs ?? 1000
+      for (let n = 0; n < (d.captureCount ?? 5); n++) {
+        this.later(start + n * every, () => {
+          void this.stage.capture(`${prefix}-stage-${n + 1}.png`).then((ok) => ok && this.log(`capture: stage ${n + 1}`))
+          void this.edge.capture(`${prefix}-edge-${n + 1}.png`).then((ok) => ok && this.log(`capture: edge ${n + 1}`))
+        })
+      }
     }
     if (d.edgeProbeAfterMs !== undefined) {
       this.later(d.edgeProbeAfterMs, () => {
