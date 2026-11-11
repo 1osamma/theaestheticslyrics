@@ -149,6 +149,60 @@ before it was measured and is **not** in the code.
 - Possible further GPU savings, deliberately not pursued (no visible problem): a shorter animation
   lookahead, or sharing one glow layer per line.
 
+## Phase 4, part 2: real-world feedback (2026-11-11)
+
+**User feedback on 1.0.1 (after `c21ac29`):** better, but some lyrics still lag, fast rap can't keep
+up, and fast/slow transitions are worst; it affects the animated presentation too.
+
+**Cause 1, the main one (app bug, fixed in `a61e35b`):** most of the rap songs tested had **no
+word timing at all**. LRCLIB gave only line timing, so words were estimated by syllables, which
+can't follow rap phrasing. NetEase had the right recordings, but the app rejected them:
+Spotify's media session reports a length **3–4 s shorter** than the real track (Bound 2: 226 s
+vs 229 s; I Wonder was logged as both 240 s and 243 s), and the NetEase match allowed only 3 s.
+- Now: recordings up to 8 s off are used when their line timing agrees with the song's LRCLIB
+  lines (`src/main/lyrics/align.ts`: ≥5 matched lines, spread ≤400 ms). A steady offset no larger
+  than the length difference (an extra intro) is aligned per song, never globally, and stored in
+  the cache (`yrcShiftMs`). Scattered offsets (another edit) are rejected.
+- Songs cached earlier as "no word timing" are asked once more (`WORD_LOOKUP_VERSION` 2).
+- Real lookups (Spotify's reported lengths), all 8 of 8 now word-timed:
+  - NetEase: Homecoming, N\*\*\*\*s In Paris, Bound 2, Good Life, Devil In A New Dress, No Church In
+    The Wild;
+  - LRCLIB's own word-timed file: All Of The Lights, Gold Digger.
+
+  Live: Touch The Sky (+4 s, lines agree within 20 ms). Through The Wire was rejected
+  before the alignment step (steady +1.14 s); it is now aligned.
+- NetEase not finding word timing is now logged ("netease has no word timing for this recording").
+
+**Cause 2 (app, animation geometry, fixed):** the sweep's soft edge was a fixed 0.45 em, so short
+words ("I", "a", "to") lit their first letter only after up to 60% of their time, which reads as
+lagging on fast vocals. The edge is now at most half the word's width (`sweepFeather`), so the
+light enters within the first third. Normal words are unchanged. Effects run from each word's own
+timestamp (no waiting on earlier animations; verified in the Phase 4 sync work: `startTime`
+locking, drift max 1 ms).
+
+**Standard vs animated:** both use the same timestamps. The text-only styles show a word at its
+start; the animated sweep spans the word's duration. With estimated timing both are equally
+wrong; with real word timing both follow it.
+
+**Remaining limits (source data):**
+- Songs with no word timing anywhere (neither NetEase nor LRCLIB) still use syllable estimates
+  and can't follow rap.
+- The two sources sometimes disagree by a few hundred ms even on the same recording, and which
+  one is right can't be known.
+- Realistic options: per-song nudge hotkeys (±100 ms, remembered per track); more word-timed
+  sources (Musixmatch richsync, Apple Music TTML: both need accounts or licences); offline
+  forced alignment of lyrics to the vocals (a large project).
+
+**Phase 5 requirements (document only; start only after the user approves):**
+1. A movable, resizable windowed version of the full music player.
+2. A movable, resizable, transparent text-only lyrics window.
+3. A lyrics presentation option in **both** the fullscreen and windowed players:
+   - **Normal:** the existing scrolling lyrics.
+   - **Animated:** the existing animated/styled lyrics (Ship, Fisheye, Visual) in place of the
+     scrolling area, keeping the album art, song info and player layout.
+4. All animation styles and settings preserved across every display mode.
+Desktop frame/edge lighting is no longer a priority; focus on a cohesive Windows interface.
+
 ## Windows packages (2026-11-11)
 
 `npm run dist` (electron-builder 26.17.0, config `electron-builder.yml`, installer page
@@ -209,8 +263,9 @@ packaged-build rerun of these checks.
 
 ## Exact next steps
 
-0. **Phase 4 is done** (sync fix and tests above). Ask the user before starting Phase 5 (windowed
-   player, transparent text-only window, consistent styles). The effect ideas below are for later.
+0. **Phase 4 acceptance is real-world sync with vocals.** After `a61e35b` the user must retest
+   the rebuilt EXE; Phase 4 isn't complete until they confirm. Then ask before Phase 5 (see the
+   requirements above). The effect ideas below are for later.
 1. **Earlier priority, now after Phase 5: the visual quality, creativity and customisation of the lyric
    text effects** (not lighting, not benchmark numbers). Proposed at session end, and **awaiting
    the user's choice**:
@@ -258,8 +313,8 @@ npm run snapshot
 > Continue LUMINA in `C:\Users\osama\Desktop\lumina` (branch `lumina/lyrics`, my fork
 > `1osamma/theaestheticslyrics`). Verify the branch, latest commit and a clean tree, then read
 > `docs/lumina/LYRICS_HANDOFF.md` and `docs/lumina/architecture.md`. Phase 4 (lyrics sync and
-> reliability) is complete. Don't develop desktop edge lighting; keep the fullscreen album-colour
-> atmosphere and the current lyric styles. Next milestone, **only after I approve**: Phase 5:
-> a resizable windowed full lyrics player, a transparent movable text-only lyrics window, and
-> consistent lyric styles across fullscreen and both windowed modes. Run typecheck, tests and the
+> reliability) has fixes up to `a61e35b` awaiting my real-world retest. Don't develop desktop edge lighting; keep the fullscreen album-colour
+> atmosphere and the current lyric styles. Next milestone, **only after I approve**: Phase 5, as
+> listed under "Phase 5 requirements" in the handoff (windowed player, transparent text-only
+> window, Normal/Animated lyrics option in both players). Run typecheck, tests and the
 > production build; commit locally; don't push, merge or start a new phase without asking me.
