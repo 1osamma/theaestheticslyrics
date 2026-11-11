@@ -61,7 +61,8 @@ full-screen window.
 | Piece | File | Notes |
 |---|---|---|
 | View | `src/renderer/src/player/player-view.ts` | Implements the same `StageStyle` interface as the styles, so the existing loop, snapshot mode and settings flow drive it unchanged. |
-| Lyrics | `src/renderer/src/player/lyric-lines.ts` | One span per timed word. `--p` sweeps the sung part across the word using its real (NetEase, Enhanced LRC) or estimated timing. Only the word being sung changes per frame. Lines fade and recede with CSS transitions, and the column scrolls with one transform. |
+| Lyrics | `src/renderer/src/player/lyric-lines.ts` | LUMINA Lyrics (see below): one span per timed word; the active line's words get overlays whose compositor animations are scheduled in song time. Lines fade and recede with CSS transitions, and the column scrolls on a critically damped spring. |
+| Lyric timeline | `src/renderer/src/player/lyric-timeline.ts` | Pure: per-effect keyframe plans for each word, the spring, motion presets. Unit-tested. |
 | Pure logic | `player/lines.ts`, `player/format.ts`, `player/chrome-fader.ts` | Line segmentation (keeps punctuation), focus and interlude detection, word fill, opacity rules, time formatting, chrome fade timing. All unit-tested. |
 | Tokens | `src/renderer/src/css/tokens.css` | Surfaces, text tiers, accents, type scale, spacing, radii and motion. |
 | Styles | `src/renderer/src/css/player.css` | Layout for landscape, with a stacked layout for narrow or portrait screens (aspect ≤ 5:4). |
@@ -88,6 +89,50 @@ play, pause or skip buttons, because they would not work. Adding them means send
 from the bridge (see Phase 2). The only interactive chrome today is a top bar (brand, source app,
 "Esc to close") and the cursor. Both appear on mouse movement in watch-only sessions and fade
 after 2.6 s. On screens that close on any input, they never appear.
+
+## LUMINA Lyrics: word-by-word animation
+
+The lyrics are the centrepiece of the player. Every animation is locked to the word timestamps
+(NetEase per-word timing or Enhanced LRC; estimated from line timing otherwise).
+
+**How a word animates.** When a line comes into focus (a little before its first word, the
+transition's `leadMs`), `lyric-lines.ts` reads every word box once and lays an overlay over each
+word: a dimmed copy, a weak underglow, and a white copy with the strong glow inside a clip window
+with a feathered right edge (`.lm-fill*` in `player.css`). `lyric-timeline.ts` turns the word's
+start and end into keyframe plans on `transform` and `opacity` only, and the overlay plays them
+with the Web Animations API. Chromium runs those on the compositor thread at the display's refresh
+rate, so a word starts on the right refresh and main-thread hitches cannot make it stutter.
+
+- **Just in time.** A word's animations are created 350 ms before it starts and cancelled into a
+  static sung state once its release has finished, so only the words actually moving hold
+  composited layers. The frame loop never sleeps past the next word's start.
+- **Sync.** All animations of a line share one origin; on seek, pause, resume or drift above
+  15 ms between the song clock and the compositor they are re-pinned (`currentTime`).
+- **Lines.** An exact critically damped spring moves the column (frame-rate independent, never
+  overshoots, velocity carries into the next move). Lines further from the focus follow a little
+  later (cascade), and a long jump (seek, new song) crossfades instead of scrolling.
+
+| Effect | What it does |
+|---|---|
+| Smooth Fill (default) | Light sweeps through each word in exactly its duration, with a slight lift and glow. |
+| Fade | Each word brightens in place, without a sweep. |
+| Glow | The sweep with a stronger halo that grows on held notes. |
+| Scale | Words pop forward as they start, then settle. |
+| Expressive | The next line rises in word by word; sung words lift and swell. |
+| Minimal | Words simply turn white (≤90 ms). This is also what Reduce animations forces. |
+
+Intensity (0–100%) scales lift, scale and glow, never timing. Transition speed (Relaxed,
+Balanced, Snappy) sets the spring, lead-in, cascade and line fades (`MOTION` in
+`lyric-timeline.ts`).
+
+**Typography.** Inter (default), Manrope and Fraunces, all bundled under SIL OFL 1.1
+(`THIRD_PARTY_NOTICES.md`), weight 600/700/800, left or centred, compact/normal/airy spacing, and
+white or album-tinted colour. When the typeface changes, overlays wait for it to load
+(`document.fonts.load`), otherwise they would be placed for the old glyphs.
+
+**Where it is set.** The tray (LUMINA Lyrics submenu) and the settings window's Lyrics tab, which
+plays a demo verse through the real renderer as a live preview. The always-on desktop overlay
+still uses the chosen classic style; bringing these animations there is planned.
 
 ## LUMINA Lighting (Phase 2): hybrid audio-reactive light
 
@@ -292,14 +337,26 @@ follows: `ambient: false` becomes Fullscreen Lighting off, and Low/Medium/High b
 | Monitor Selection | `edgeDisplays` primary / all / display id | Primary |
 | Pause During Fullscreen Games | `pauseInFullscreen` | On |
 | Start Edge Lighting with Windows | `edgeAtStartup` | On |
-| Lyric style, font size, timing, display, Start with Windows, reduced motion, frame-rate limit | (Phase 1 fields) | unchanged |
+| Lyric Effect | `lyricEffect` fill / fade / glow / scale / expressive / minimal | Smooth Fill |
+| Lyric Intensity | `lyricIntensity` 0–100% | 60% |
+| Transition Speed | `lyricTransition` relaxed / balanced / snappy | Balanced |
+| Font, Weight | `lyricFont` inter / manrope / fraunces, `lyricWeight` 600 / 700 / 800 | Inter, 700 |
+| Alignment, Line Spacing, Colour | `lyricAlign`, `lyricSpacing`, `lyricColor` white / album | left, normal, white |
+| Reduce Animations | `reducedMotion` (also follows Windows) | Off |
+| Lyric style, font size, timing, display, Start with Windows, frame-rate limit | (Phase 1 fields) | unchanged |
+
+The old three-step `animation` field (Phase 1) is read once: Low/Medium/High become an intensity
+of 35/60/90% (no version bump; the field is dropped on the next save).
 
 **Where to change them:**
 - **Tray → LUMINA Lighting:** Enable Desktop Lighting, Fullscreen Player Lighting, Lighting Mode,
   Brightness, Select Monitor, Pause Lighting, and Lighting Settings…, which opens the full panel.
-- **The panel:** shows live status (audio mode, edge state, renderer) and validates nothing itself.
-  The main process accepts only lighting keys (`pickLightingPatch`) and the settings store
-  validates every value.
+- **Tray → LUMINA Lyrics:** every lyrics setting, and Lyrics Settings…, which opens the panel on
+  its Lyrics tab.
+- **The panel (LUMINA Settings):** a Lyrics tab (live preview and every lyrics control) and a
+  Lighting tab (live status: audio mode, edge state, renderer). It validates nothing itself: the
+  main process accepts only lighting, lyrics and Reduce animations keys (`pickPanelPatch`) and the
+  settings store validates every value.
 
 ## Performance (measured)
 

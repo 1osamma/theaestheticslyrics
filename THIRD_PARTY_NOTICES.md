@@ -160,6 +160,30 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
 
+## Manrope
+
+LUMINA Lyrics offers [Manrope](https://github.com/sharanda/manrope) as a lyric typeface, bundled
+from `@fontsource-variable/manrope` 5.3.0. SIL Open Font License 1.1 (full text in the Inter
+section above).
+
+```
+Copyright 2019 The Manrope Project Authors (https://github.com/sharanda/manrope)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+```
+
+## Fraunces
+
+LUMINA Lyrics offers [Fraunces](https://github.com/undercasetype/Fraunces) as a lyric typeface,
+bundled from `@fontsource-variable/fraunces` 5.3.0. SIL Open Font License 1.1 (full text in the
+Inter section above).
+
+```
+Copyright 2020 The Fraunces Project Authors (github.com/undercasetype/Fraunces)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+```
+
 ## Online services (not bundled)
 
 The app looks lyrics up while it runs. No lyrics are included in this repository or in the release.

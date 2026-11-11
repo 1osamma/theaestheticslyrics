@@ -1,5 +1,7 @@
 # LUMINA Phase 2 handoff
 
+> **Current work continues on `lumina/lyrics`:** see [LYRICS_HANDOFF.md](LYRICS_HANDOFF.md).
+
 State at handoff (2026-11-11): branch **`lumina/phase-2`** is **pushed** to
 `origin` = `https://github.com/1osamma/theaestheticslyrics.git`
 (https://github.com/1osamma/theaestheticslyrics/tree/lumina/phase-2), tracking
