@@ -68,9 +68,8 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
    - a real game (full-screen detection was verified with another app's full-screen window);
    - a visual review of the Lighting Settings window (there is a `--capture-lighting=<png>` flag for it);
    - 240 Hz (the panel ran at 179.9 Hz).
-4. **Known cost:** with Spotify playing, GPU-3D use (about 9%) comes from the **Phase 1 lyric
-   word-fill animation** at display rate (text gradient and glow repaint), not from lighting (0.33%
-   at 180 FPS). A possible optimisation: render the active-line fill more cheaply.
+4. **Resolved (2026-11-11): the lyric word fill was the main GPU cost while playing.** It is now
+   compositor-only; see "Word-fill optimisation" below.
 
 ## Spotify at normal volume (final live check)
 
@@ -117,6 +116,44 @@ New debug tools used for this (kept):
   plus `<prefix>-edge-N-preview.png` (composited over a dark desktop, no screenshot of the real
   desktop).
 - The `--perf-file` report includes `lightLevels` (atmosphere, bloom, edge stats).
+
+## Word-fill optimisation (2026-11-11)
+
+**Before:** the word being sung was a `background-clip: text` gradient whose stop moved every frame
+(`--p`), inside a `filter: drop-shadow`. At 239 Hz that repainted the word and re-ran the blur filter
+on every refresh.
+
+**After** (`src/renderer/src/player/lyric-lines.ts`, `.lm-fill*` in `player.css`):
+- Words in the active line are plain coloured text. Sung words are white and upcoming ones dimmed
+  (`.is-ahead`), and classes change once per word, never per frame.
+- The word being sung is hidden (`.is-held`). One overlay, placed over it inside the line, holds:
+  - a dimmed copy;
+  - a weak underglow;
+  - a white copy with the strong glow, inside a clip window with a 0.45em feathered mask edge.
+- Each frame only translates the window and counter-translates its text: two transforms, applied by
+  the compositor with no repaint, no filter and no layout. Layout is read once per word (position,
+  width).
+- The overlay lives in the line element, so it follows the line's scale and fade transitions. The
+  sweep edge lands where the old gradient put it (progress × (word + feather) − feather), and the
+  glow strength matches the old drop-shadow (strong on sung letters, weak on dimmed ones).
+- Snapshots of the same moment before and after are visually the same (edge at "ro|ad", same
+  glow, layout and typography).
+
+**Benchmark:** fake player and fixture LRC for identical, continuous word fill; the real app; 12 s
+window; per-process GPU-3D counters. One run each.
+
+| Benchmark (fixture lyrics, 239 Hz, 2560×1440) | Before | After |
+|---|---|---|
+| Lyrics only: GPU-3D avg / max | 3.78% / 19.6% | **0.93% / 4.3%** |
+| Lyrics + lighting: GPU-3D avg / max | 6.58% / 23.0% | **3.11% / 13.9%** |
+| Lyrics + lighting: worst frame interval | 20.8 ms | **16.8 ms** |
+| Renderer CPU / GPU-process CPU (lyrics + lighting) | 1.22% / 2.01% | 0.74% / 1.44% |
+| Frame interval p50 while a word fills | 4.2 ms (239 Hz) | 4.2 ms (239 Hz) |
+| Long tasks | 0 | 0 |
+
+**On 240 Hz:** while a word fills, the page draws on every refresh of the 239 Hz panel (p50 4.2 ms).
+The page averages 173–186 FPS rather than 239 because the loop slows down between words and in gaps,
+by design. That isn't a sustained 240 FPS.
 
 ## Tests and measurements (latest)
 
@@ -172,7 +209,9 @@ All measurements were taken with live **system** audio, in a throwaway profile (
    "Live visual testing".)
 4. Live checks not yet done: Bluetooth or USB device switching, Spotify close/restart during
    capture, a real full-screen game, a second monitor if available.
-5. Optional optimisation: a cheaper Phase 1 active-line word fill (the main GPU cost while playing).
+5. (Done 2026-11-11: compositor-only word fill; see "Word-fill optimisation".) Optional: repeat the
+   benchmark a few times for variance, and re-check live with Spotify, `--capture-series` and
+   `--perf-file`.
 6. When the user approves: push `lumina/phase-2` and open a pull request (ask first).
 
 ## Commands to resume

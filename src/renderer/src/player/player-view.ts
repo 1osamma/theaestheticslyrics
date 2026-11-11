@@ -216,7 +216,9 @@ export function createPlayerView(): PlayerView {
     root.dataset.lite = config && !config.gpu ? 'true' : 'false'
     const emphasis = EMPHASIS[config?.animation ?? 'medium']
     root.style.setProperty('--lm-lift', reducedMotion ? '0em' : emphasis.lift)
-    root.style.setProperty('--lm-glow', reducedMotion || (config && !config.gpu) ? '0em' : emphasis.glow)
+    const glow = reducedMotion || (config && !config.gpu) ? '0em' : emphasis.glow
+    root.style.setProperty('--lm-glow', glow)
+    root.dataset.glow = glow === '0em' ? 'off' : 'on'
     lines.setOptions({
       animation: config?.animation ?? 'medium',
       reducedMotion,

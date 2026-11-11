@@ -335,12 +335,19 @@ current mode, not 240). Each used the real app, a throwaway profile and live sys
 - **Without a GPU** (`--disable-gpu`): the CSS fallback took over, at 21.8 FPS under software
   compositing, with no long tasks and audio still at 60 frames/s.
 
-**The GPU cost while playing comes from the Phase 1 lyric animation, not the lighting:**
-- Lighting alone at 180 FPS used 0.33% of the GPU.
-- With Spotify playing, the word-fill text gradient and glow repaint at the display rate.
+**Word fill (optimised 2026-11-11):** the word being sung used to repaint a text gradient inside a
+drop-shadow filter on every refresh. It is now swept by a compositor-only overlay (two transforms per
+frame; see the handoff, "Word-fill optimisation"). Benchmarked with identical fixture lyrics at
+239 Hz:
 
-Lowering **Frame Rate Limit** (lyrics) or using Reduce Motion cuts that cost. A follow-up could
-render the active-line fill more cheaply.
+| Benchmark (fixture lyrics, 239 Hz, 2560×1440) | Before | After |
+|---|---|---|
+| Lyrics only: GPU-3D avg / max | 3.78% / 19.6% | **0.93% / 4.3%** |
+| Lyrics + lighting: GPU-3D avg / max | 6.58% / 23.0% | **3.11% / 13.9%** |
+| Lyrics + lighting: worst frame interval | 20.8 ms | **16.8 ms** |
+| Renderer CPU / GPU-process CPU (lyrics + lighting) | 1.22% / 2.01% | 0.74% / 1.44% |
+| Frame interval p50 while a word fills | 4.2 ms (239 Hz) | 4.2 ms (239 Hz) |
+| Long tasks | 0 | 0 |
 
 ## Reliability (what was exercised)
 
