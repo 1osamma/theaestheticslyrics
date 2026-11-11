@@ -203,6 +203,23 @@ wrong; with real word timing both follow it.
 4. All animation styles and settings preserved across every display mode.
 Desktop frame/edge lighting is no longer a priority; focus on a cohesive Windows interface.
 
+## Future improvement: fast-vocal sync (open, not solved)
+
+Status at Phase 4 acceptance: on some fast rap vocals the highlight still trails the voice
+slightly. Known contributors, in order of likely size:
+- **Source timing:** NetEase and LRCLIB word and line stamps are hand- or machine-made and can be
+  late or coarse on dense verses. Some songs have no word timing at all (syllable estimates).
+- **Perception:** a sweep across a word reads as "lit" later than its first sound; on 80–150 ms
+  words even a short sweep trails. Options: light short or fast words with a near-instant onset
+  (a minimum visible lead, e.g. the first letter fully lit at the timestamp), or anticipate by
+  a few tens of ms for words shorter than ~150 ms, per effect and tested by ear.
+- **Output latency:** Spotify's position is decoder time; Windows audio, Bluetooth or USB DACs add
+  delay. The global timing offset covers it, and an automatic estimate is possible from the
+  loopback capture.
+- **Ideas beyond the reference:** per-song nudge hotkeys (±100 ms, remembered per track);
+  vocal-onset alignment from the loopback audio (snap word starts to detected onsets within
+  ±120 ms); more word-timed sources (Musixmatch richsync, Apple Music TTML: accounts or licences).
+
 ## Windows packages (2026-11-11)
 
 `npm run dist` (electron-builder 26.17.0, config `electron-builder.yml`, installer page
@@ -263,9 +280,10 @@ packaged-build rerun of these checks.
 
 ## Exact next steps
 
-0. **Phase 4 acceptance is real-world sync with vocals.** After `a61e35b` the user must retest
-   the rebuilt EXE; Phase 4 isn't complete until they confirm. Then ask before Phase 5 (see the
-   requirements above). The effect ideas below are for later.
+0. **Phase 4 accepted by the user (2026-11-11)** after real-world testing of `a61e35b`: sync is
+   clearly improved. **Not fully solved:** some fast rap vocals still show a slight visual delay
+   (the original reference app behaves similarly). The long-term goal is to do better than the
+   reference: see "Future improvement: fast-vocal sync" below. Next: Phase 5, after approval.
 1. **Earlier priority, now after Phase 5: the visual quality, creativity and customisation of the lyric
    text effects** (not lighting, not benchmark numbers). Proposed at session end, and **awaiting
    the user's choice**:
@@ -313,7 +331,7 @@ npm run snapshot
 > Continue LUMINA in `C:\Users\osama\Desktop\lumina` (branch `lumina/lyrics`, my fork
 > `1osamma/theaestheticslyrics`). Verify the branch, latest commit and a clean tree, then read
 > `docs/lumina/LYRICS_HANDOFF.md` and `docs/lumina/architecture.md`. Phase 4 (lyrics sync and
-> reliability) has fixes up to `a61e35b` awaiting my real-world retest. Don't develop desktop edge lighting; keep the fullscreen album-colour
+> reliability) is accepted (fast-vocal sync remains a listed future improvement). Don't develop desktop edge lighting; keep the fullscreen album-colour
 > atmosphere and the current lyric styles. Next milestone, **only after I approve**: Phase 5, as
 > listed under "Phase 5 requirements" in the handoff (windowed player, transparent text-only
 > window, Normal/Animated lyrics option in both players). Run typecheck, tests and the
