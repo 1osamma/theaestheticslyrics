@@ -1,9 +1,12 @@
 # LUMINA Phase 2 handoff
 
-State at handoff: branch **`lumina/phase-2`** (local only, **not pushed**). The latest commit is the
-one that adds the Spotify-only capture fix (run `git log --oneline -1`), and the working tree is clean. It is based on `lumina/phase-1` @ `6fb7f00`, which is pushed to
-`origin` = `https://github.com/1osamma/theaestheticslyrics.git`. `main` is untouched.
-Nothing is merged or pushed, and no pull request exists.
+State at handoff (2026-11-11): branch **`lumina/phase-2`** is **pushed** to
+`origin` = `https://github.com/1osamma/theaestheticslyrics.git`
+(https://github.com/1osamma/theaestheticslyrics/tree/lumina/phase-2), tracking
+`origin/lumina/phase-2`, working tree clean. The last feature commit is `135b09d` (compositor-only
+word fill); this handoff update follows it (run `git log --oneline -1`). It builds on
+`lumina/phase-1` @ `6fb7f00`, also pushed. **`main` is untouched. Nothing is merged, and no pull
+request or release exists.** Ask the user before any of those, and before starting Phase 3.
 
 Full technical detail: [architecture.md](architecture.md), sections "LUMINA Lighting (Phase 2)",
 "Settings", "Performance (measured)" and "Reliability".
@@ -17,7 +20,11 @@ Full technical detail: [architecture.md](architecture.md), sections "LUMINA Ligh
 | `94b8dd5` | Fixes from live tests: frame pacing (`FrameGate`), GPU status timing, maximized windows ≠ full screen, audible capture keeps edge lighting awake, perf report |
 | `7252eba` | System loopback is the default audio source; edge windows no longer block quit; docs |
 | `39a98b9`, `bf27b25`, `8ca0cf4` | This handoff and its updates |
-| latest | **Spotify-only capture fixed**: stream setup moved into `ActivateCompleted`, as in Microsoft's sample; verified to exclude other apps |
+| `c61caaa` | **Spotify-only capture fixed**: stream setup moved into `ActivateCompleted`, as in Microsoft's sample; verified to exclude other apps |
+| `d2c1fc6`, `cb3bc41` | Spotify-only and hybrid lighting verified at normal volume; desktop audio kept as the default (user decision) |
+| `7a62c6d`, `87b1880` | Live visual testing (greyscale and colourful albums); smooth edge-glow tail; dark panel scrollbar; `--capture-series` and light-level stats |
+| `135b09d` | Compositor-only lyric word fill (GPU-3D for lyrics 3.78% → 0.93% average) |
+| (this commit) | Handoff: branch pushed |
 
 ## Implemented and verified
 
@@ -212,7 +219,8 @@ All measurements were taken with live **system** audio, in a throwaway profile (
 5. (Done 2026-11-11: compositor-only word fill; see "Word-fill optimisation".) Optional: repeat the
    benchmark a few times for variance, and re-check live with Spotify, `--capture-series` and
    `--perf-file`.
-6. When the user approves: push `lumina/phase-2` and open a pull request (ask first).
+6. **Done 2026-11-11:** `lumina/phase-2` pushed to the fork at the user's request. Still **ask
+   first** before merging into `main`, opening a pull request, creating a release, or starting Phase 3.
 
 ## Commands to resume
 
