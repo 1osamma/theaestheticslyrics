@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { app, globalShortcut, nativeImage, screen, shell, type NativeImage } from 'electron'
+import { app, contentTracing, globalShortcut, nativeImage, screen, shell, type NativeImage } from 'electron'
 import type { AudioAnalysisFrame, AudioStatus } from '@shared/audio-frame'
 import type { ColorsState, EdgeState, LightingPanelState, PanelSettings } from '@shared/ipc'
 import { usesAudio, type AmbientPalette, type LightingConfig, type LightingSettings } from '@shared/lighting'
-import { lyricsConfigOf } from '@shared/lyrics-style'
+import { LYRIC_EFFECTS, lyricsConfigOf } from '@shared/lyrics-style'
 import { DEFAULT_COLORS } from '@shared/palette-defaults'
 import type { LyricsStatus, Palette, PlaybackAnchor, PlayerConfig, TimedLyrics, TrackInfo } from '@shared/types'
 import { AudioService } from './audio/audio-service'
@@ -66,6 +66,12 @@ export interface DebugOptions {
   perfAfterMs?: number
   perfWindowMs?: number
   perfFile?: string
+  /** Records a Chromium trace (compositor and GPU frames) over `traceWindowMs` into `traceFile`. */
+  traceAfterMs?: number
+  traceWindowMs?: number
+  traceFile?: string
+  /** Switches the lyric effect to the next one every this many ms (tests effect changes mid-song). */
+  cycleEffectsMs?: number
 }
 
 /** Wires media → lyrics → palette → stage/tray/power. One instance per app run. */
@@ -645,7 +651,42 @@ export class AppController {
       const windowMs = d.perfWindowMs ?? 20_000
       this.later(d.perfAfterMs, () => void this.measure(windowMs, file))
     }
+    if (d.traceAfterMs !== undefined && d.traceFile) {
+      const file = d.traceFile
+      const windowMs = d.traceWindowMs ?? 10_000
+      this.later(d.traceAfterMs, () => void this.trace(windowMs, file))
+    }
+    if (d.cycleEffectsMs !== undefined && d.cycleEffectsMs > 0) {
+      const every = d.cycleEffectsMs
+      const step = (): void => {
+        const current = LYRIC_EFFECTS.indexOf(this.settings.get().lyricEffect)
+        const next = LYRIC_EFFECTS[(current + 1) % LYRIC_EFFECTS.length]!
+        this.log(`debug: lyric effect -> ${next}`)
+        this.settings.update({ lyricEffect: next })
+        this.later(every, step)
+      }
+      this.later(every, step)
+    }
     if (d.quitAfterMs !== undefined) this.later(d.quitAfterMs, () => app.quit())
+  }
+
+  /**
+   * Debug: records what the compositor and GPU actually draw (frame presentation, not page
+   * requestAnimationFrame) for `windowMs` as a Chromium JSON trace.
+   */
+  private async trace(windowMs: number, file: string): Promise<void> {
+    try {
+      await contentTracing.startRecording({
+        included_categories: ['viz', 'gpu', 'cc', 'benchmark', 'disabled-by-default-viz.gpu_composite_time'],
+        excluded_categories: ['*']
+      })
+      this.log(`trace: recording ${windowMs} ms`)
+      await new Promise((resolve) => setTimeout(resolve, windowMs))
+      const path = await contentTracing.stopRecording(file)
+      this.log(`trace: saved ${path}`)
+    } catch (err) {
+      this.log(`trace: failed (${String(err)})`)
+    }
   }
 
   /**

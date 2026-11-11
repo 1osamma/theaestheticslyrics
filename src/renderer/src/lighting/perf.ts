@@ -50,7 +50,13 @@ export interface PerfCounters {
   light(at: number, levels?: LightLevels): void
   audioLatency(ms: number): void
   setRenderer(kind: string): void
+  /** Lyrics: how far the playing word animations are from the song clock (ms, signed). */
+  lyricDrift(ms: number): void
+  /** Lyrics: the word animations were re-pinned to the song clock, and why. */
+  lyricRepin(reason: LyricRepinReason): void
 }
+
+export type LyricRepinReason = 'line' | 'settle' | 'play-state' | 'clock' | 'measured'
 
 export function installPerf(page: string): PerfCounters {
   const intervals = new Ring()
@@ -60,6 +66,8 @@ export function installPerf(page: string): PerfCounters {
   const edge = new Ring()
   const work = new Ring()
   const latency = new Ring()
+  const drift = new Ring()
+  const repins: Record<LyricRepinReason, number> = { line: 0, settle: 0, 'play-state': 0, clock: 0, measured: 0 }
   let lastFrame: number | null = null
   let lastLight: number | null = null
   let started = performance.now()
@@ -88,6 +96,8 @@ export function installPerf(page: string): PerfCounters {
     edge.clear()
     work.clear()
     latency.clear()
+    drift.clear()
+    for (const key of Object.keys(repins) as LyricRepinReason[]) repins[key] = 0
     lastFrame = lastLight = null
     frames = lights = longTasks = longTaskMs = 0
     started = performance.now()
@@ -109,6 +119,8 @@ export function installPerf(page: string): PerfCounters {
         scriptMsPerFrame: work.stats(),
         longTasks: { count: longTasks, totalMs: Math.round(longTaskMs) },
         audioDeliveryLatencyMs: latency.stats(),
+        lyricSyncDriftMs: drift.stats(),
+        lyricRepins: { ...repins },
         devicePixelRatio: window.devicePixelRatio,
         viewport: `${window.innerWidth}x${window.innerHeight}`
       }
@@ -137,6 +149,12 @@ export function installPerf(page: string): PerfCounters {
     },
     setRenderer(kind) {
       renderer = kind
+    },
+    lyricDrift(ms) {
+      drift.push(Math.abs(ms))
+    },
+    lyricRepin(reason) {
+      repins[reason]++
     }
   }
 }

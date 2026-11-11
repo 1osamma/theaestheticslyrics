@@ -85,7 +85,11 @@ function startApp(): void {
         edgeProbeAfterMs: argNumber('edge-probe-after'),
         perfAfterMs: argNumber('perf-after'),
         perfWindowMs: argNumber('perf-window'),
-        perfFile: argValue('perf-file')
+        perfFile: argValue('perf-file'),
+        traceAfterMs: argNumber('trace-after'),
+        traceWindowMs: argNumber('trace-window'),
+        traceFile: argValue('trace-file'),
+        cycleEffectsMs: argNumber('cycle-effects')
       },
       { showLyricsOnLaunch: openedByUser, autostart: process.argv.includes('--autostart') }
     )

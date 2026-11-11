@@ -64,7 +64,10 @@ export interface PlayerView extends StageStyle {
  */
 export function createPlayerView(): PlayerView {
   const light = createLightLayer(false, (m) => console.info(m))
-  const lines = createLyricLines()
+  const lines = createLyricLines({
+    drift: (ms) => perf?.lyricDrift(ms),
+    repin: (reason) => perf?.lyricRepin(reason)
+  })
   const chrome = new ChromeFader()
 
   const root = el('div', 'lm-player')

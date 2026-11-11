@@ -1,3 +1,4 @@
+import type { LyricRepinReason } from '../lighting/perf'
 import { DEFAULT_LYRICS, type LyricsConfig } from '@shared/lyrics-style'
 import { type LyricsModel } from '../stage/model'
 import { setStyle } from '../stage/style-cache'
@@ -84,6 +85,21 @@ export interface LyricLinesOptions {
   scale: number
 }
 
+/**
+ * Song time at the current frame's timeline time. `t` was read at `wallMs` (performance.now when
+ * the frame's script started); animations sample the document timeline, which is the rAF time.
+ */
+function songAtFrame(t: number, wallMs: number): number {
+  const frame = document.timeline.currentTime
+  return typeof frame === 'number' ? t - (wallMs - frame) : t
+}
+
+/** Optional sync statistics for debug runs (`--perf-file`). */
+export interface LyricSyncStats {
+  drift(ms: number): void
+  repin(reason: LyricRepinReason): void
+}
+
 export interface LyricLinesFrame {
   songMs: number
   wallMs: number
@@ -100,7 +116,7 @@ export interface LyricLinesFrame {
  * main thread only re-pins the animations to the song clock on seeks, pauses and drift, and moves
  * lines with a critically damped spring.
  */
-export function createLyricLines() {
+export function createLyricLines(stats?: LyricSyncStats) {
   let root: HTMLDivElement | null = null
   let track: HTMLDivElement | null = null
   let dots: HTMLDivElement | null = null
@@ -293,9 +309,8 @@ export function createLyricLines() {
    * Brings each run of the active line to its state at song time `t`: animations are created just
    * before a run starts and cancelled into the static sung state (`is-done`) once it has finished.
    */
-  function advance(t: number, playing: boolean): void {
+  function advance(t: number, wallMs: number, playing: boolean): void {
     if (!active) return
-    const at = t - active.origin
     for (const run of active.runs) {
       const next = t >= run.finish ? 'done' : t >= run.start - LOOKAHEAD_MS ? 'live' : 'idle'
       if (next === run.state) continue
@@ -306,24 +321,39 @@ export function createLyricLines() {
       if (run.el.classList.contains('lm-fill')) run.el.classList.toggle('is-live', next === 'live')
       if (next !== 'live') continue
       run.anims = run.make()
-      for (const a of run.anims) {
-        a.currentTime = at
-        if (!playing) a.pause()
-      }
+      for (const a of run.anims) lock(a, t, wallMs, playing)
     }
+  }
+
+  /**
+   * Locks an animation to the song clock. Playing, it gets an explicit start time on the document
+   * timeline (`wallMs` is in that timebase): song time `t` at `wallMs` means the line's origin was
+   * at `wallMs - t + origin`. Unlike setting `currentTime`, this does not depend on when the
+   * compositor picks the animation up (a pending animation would otherwise start late by however
+   * long it waited), and it never auto-rewinds an animation that is already past its end.
+   * Paused (and in snapshots), it holds at the exact song time.
+   */
+  function lock(a: Animation, t: number, wallMs: number, playing: boolean): void {
+    if (!active) return
+    if (playing) {
+      a.startTime = wallMs - t + active.origin
+    } else {
+      a.pause()
+      a.currentTime = t - active.origin
+    }
+  }
+
+  function runningAnimation(line: ActiveLine): Animation | undefined {
+    for (const run of line.runs) for (const a of run.anims) if (a.playState === 'running' && !a.pending) return a
+    return undefined
   }
 
   /** Pins every live animation to song time `t` (seek, pause, resume, drift). */
   function pin(t: number, wallMs: number, playing: boolean): void {
     if (!active) return
-    advance(t, playing)
-    const at = t - active.origin
+    advance(t, wallMs, playing)
     for (const run of active.runs) {
-      for (const a of run.anims) {
-        a.currentTime = at
-        if (playing) a.play()
-        else a.pause()
-      }
+      for (const a of run.anims) lock(a, t, wallMs, playing)
     }
     sync = { song: t, wall: wallMs, playing }
   }
@@ -429,12 +459,31 @@ export function createLyricLines() {
       else if (!fontsPending && (!active || active.key !== key)) {
         schedule(lineIndex, t, key)
         pin(t, wallMs, playing && !settle)
+        stats?.repin('line')
       }
       // Re-pin on pause, resume, seek or drift between the song clock and the compositor.
       if (active && sync) {
         const expected = sync.playing ? sync.song + (wallMs - sync.wall) : sync.song
-        if (settle || playing !== sync.playing || Math.abs(t - expected) > RESYNC_MS) pin(t, wallMs, playing && !settle)
-        else advance(t, sync.playing)
+        // Also measured, not only assumed: a running animation's own clock against the song clock
+        // (a finished one only updates its clock on main-thread frames, so it is not a reference).
+        const live = sync.playing ? runningAnimation(active) : undefined
+        const measured = live && typeof live.currentTime === 'number' && live.startTime !== null ? live.currentTime + active.origin - songAtFrame(t, wallMs) : 0
+        const reason = settle
+          ? 'settle'
+          : playing !== sync.playing
+            ? 'play-state'
+            : Math.abs(t - expected) > RESYNC_MS
+              ? 'clock'
+              : Math.abs(measured) > RESYNC_MS
+                ? 'measured'
+                : null
+        if (reason) {
+          pin(t, wallMs, playing && !settle)
+          stats?.repin(reason)
+        } else {
+          advance(t, wallMs, sync.playing)
+          if (live && live.startTime !== null) stats?.drift(measured)
+        }
       }
 
       // Interlude dots sit just under the last sung line and breathe with the break's progress.
