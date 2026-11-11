@@ -456,11 +456,12 @@ body[data-snapshot] *::after {
   position: absolute;
   left: -0.5em;
   top: -0.5em;
-  width: calc(100% + 0.95em);
+  /* 0.5em glow room plus the soft edge (narrower on short words, set per word by lyric-lines.ts). */
+  width: calc(100% + 0.5em + var(--lm-feather, 0.45em));
   height: calc(100% + 1em);
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 0.45em), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 0.45em), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--lm-feather, 0.45em)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--lm-feather, 0.45em)), transparent);
 }
 
 /* Fade and Minimal keep the window open; the feather would only dim the end of the word. */

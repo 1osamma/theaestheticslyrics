@@ -7,6 +7,7 @@ import { LocalLyrics } from '../src/main/lyrics/local'
 import type { FindResult, LrclibClient } from '../src/main/lyrics/lrclib'
 import type { NeteaseClient, NeteaseResult } from '../src/main/lyrics/netease'
 import type { LrclibRecord, TrackQuery } from '../src/main/lyrics/match'
+import { parseLrc } from '../src/main/lyrics/lrc'
 import { LyricsService, recordToTimedLyrics } from '../src/main/lyrics/service'
 
 const fixtures = join(__dirname, 'fixtures')
@@ -54,7 +55,27 @@ function setup(find: () => Promise<FindResult>, word?: { find: () => Promise<Net
 const neteaseFound = async (): Promise<NeteaseResult> => ({
   status: 'found',
   yrc: YRC,
-  song: { id: 1, title: 'Paper Lanterns', artist: 'Lantern Test Band', album: 'Fixtures', durationSec: 32 }
+  song: { id: 1, title: 'Paper Lanterns', artist: 'Lantern Test Band', album: 'Fixtures', durationSec: 32 },
+  loose: false
+})
+
+/** NetEase-style word timing built from the fixture's own lines, shifted by `shift(i)` ms per line. */
+const yrcFromLrc = (shift: (i: number) => number): string =>
+  parseLrc(lrc)
+    .filter((l) => l.text.trim())
+    .map((l, i) => {
+      const start = l.start + shift(i)
+      const words = l.text.trim().split(/\s+/)
+      return `[${start},${words.length * 300}]` + words.map((w, j) => `(${start + j * 300},300,0)${w} `).join('')
+    })
+    .join('\n')
+
+/** A recording reported 3.4 s longer than the player's length (as Spotify's often is). */
+const neteaseLoose = (yrc: string) => async (): Promise<NeteaseResult> => ({
+  status: 'found',
+  yrc,
+  song: { id: 2, title: 'Paper Lanterns', artist: 'Lantern Test Band', album: 'Fixtures', durationSec: 35.4 },
+  loose: true
 })
 
 describe('recordToTimedLyrics', () => {
@@ -142,6 +163,44 @@ describe('LyricsService.get', () => {
     expect(await s.service.get(query)).toMatchObject({ source: 'netease' })
     expect(await s.service.get(query)).toMatchObject({ source: 'cache' })
     expect((await s.service.get(query)).lyrics?.wordTiming).toBe('native')
+    expect(s.wordClient.find).toHaveBeenCalledTimes(1)
+    expect(s.client.find).not.toHaveBeenCalled()
+  })
+
+  it('uses a NetEase recording a few seconds longer when its line timing agrees with LRCLIB', async () => {
+    const s = setup(async () => ({ status: 'found', record: record() }), { find: neteaseLoose(yrcFromLrc(() => 120)) })
+    const result = await s.service.get(query)
+    expect(result).toMatchObject({ status: 'found', source: 'netease' })
+    expect(result.lyrics?.wordTiming).toBe('native')
+  })
+
+  it('aligns a longer recording with a steady offset (extra intro) and keeps the shift in the cache', async () => {
+    const s = setup(async () => ({ status: 'found', record: record() }), { find: neteaseLoose(yrcFromLrc(() => 1100)) })
+    const first = await s.service.get(query)
+    expect(first).toMatchObject({ source: 'netease' })
+    expect(first.lyrics?.lines[0]?.start).toBe(1000)
+    const again = await s.service.get(query)
+    expect(again).toMatchObject({ source: 'cache' })
+    expect(again.lyrics?.lines[0]?.start).toBe(1000)
+  })
+
+  it('rejects a longer NetEase recording whose line timing does not agree (another edit)', async () => {
+    const s = setup(async () => ({ status: 'found', record: record() }), {
+      find: neteaseLoose(yrcFromLrc((i) => (i < 3 ? 0 : 3500)))
+    })
+    expect(await s.service.get(query)).toMatchObject({ status: 'found', source: 'lrclib' })
+  })
+
+  it('rejects a longer NetEase recording when there is no line timing to confirm it', async () => {
+    const s = setup(async () => ({ status: 'not-found' }), { find: neteaseLoose(yrcFromLrc(() => 0)) })
+    expect((await s.service.get(query)).status).toBe('not-found')
+  })
+
+  it('asks NetEase once more for songs an older lookup found no word timing for', async () => {
+    const s = setup(async () => ({ status: 'found', record: record() }), { find: neteaseLoose(yrcFromLrc(() => 80)) })
+    await s.cache.set(cacheKey(query), { status: 'found', record: record(), wordChecked: true, fetchedAt: Date.now() })
+    expect(await s.service.get(query)).toMatchObject({ source: 'netease' })
+    expect(await s.service.get(query)).toMatchObject({ source: 'cache' })
     expect(s.wordClient.find).toHaveBeenCalledTimes(1)
     expect(s.client.find).not.toHaveBeenCalled()
   })

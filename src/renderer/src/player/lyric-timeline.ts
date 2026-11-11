@@ -85,6 +85,21 @@ export interface WordPlanInput {
   motion: Motion
 }
 
+/** The sweep's soft leading edge (em) for words wide enough to carry it. */
+export const FEATHER_EM = 0.45
+const MIN_FEATHER_EM = 0.12
+
+/**
+ * Width of the sweep's soft edge for a word `wordEm` wide. The window starts with its soft edge
+ * just touching the word, so the solid light reaches the first letter after
+ * feather / (word + feather) of the word's time. A fixed 0.45 em edge made short words ("I", "a",
+ * "to") light up only after up to 60% of their time, which reads as lagging on fast vocals; capped
+ * at half the word's width, that is always within the first third.
+ */
+export function sweepFeather(wordEm: number): number {
+  return Math.min(FEATHER_EM, Math.max(MIN_FEATHER_EM, wordEm * 0.5))
+}
+
 const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)'
 const EASE_SOFT = 'cubic-bezier(0.33, 0, 0.2, 1)'
 /** Long held words ease in their swell instead of looking frozen. */

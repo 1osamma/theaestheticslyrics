@@ -8,6 +8,14 @@ import type { LrclibRecord, TrackQuery } from './match'
 import type { NeteaseClient, NeteaseResult } from './netease'
 import { buildTimedLyrics } from './word-timing'
 import { parseYrc } from './yrc'
+import { compareLineTiming, looseAlignment, shiftLyrics } from './align'
+
+/**
+ * Bumped when the NetEase lookup finds more songs, so songs cached as "no word timing" by an
+ * older version are asked once more. 2: recordings up to 8 s longer or shorter, confirmed by
+ * line timing.
+ */
+export const WORD_LOOKUP_VERSION = 2
 
 export interface LyricsResult {
   status: 'found' | 'not-found' | 'instrumental' | 'error'
@@ -63,7 +71,7 @@ export class LyricsService {
     const key = cacheKey(q)
     const cached = await this.deps.cache.get(key)
     if (cached) {
-      if (useWords && !cached.yrc && !cached.wordChecked) {
+      if (useWords && !cached.yrc && (!cached.wordChecked || (cached.wordVersion ?? 1) < WORD_LOOKUP_VERSION)) {
         // Cached before word timing was available (or NetEase failed last time): ask once.
         const upgraded = await this.askWordLevel(q, key, cached)
         if (upgraded) return upgraded
@@ -76,19 +84,21 @@ export class LyricsService {
       useWords ? this.findWords(q) : Promise.resolve<NeteaseResult | null>(null)
     ])
 
-    const wordLyrics = word?.status === 'found' ? yrcToTimedLyrics(word.yrc, q.durationMs) : null
+    const timing = this.wordTiming(word, q, line.status === 'found' ? line.record : undefined)
     const wordChecked = word !== null && word.status !== 'error'
 
-    if (wordLyrics && word?.status === 'found') {
+    if (timing && word?.status === 'found') {
       const entry: CacheEntry = {
         status: 'found',
         ...(line.status === 'found' ? { record: line.record } : {}),
         yrc: word.yrc,
+        ...(timing.shiftMs ? { yrcShiftMs: timing.shiftMs } : {}),
         wordChecked: true,
+        wordVersion: WORD_LOOKUP_VERSION,
         fetchedAt: this.now()
       }
       await this.save(key, entry)
-      return { status: 'found', lyrics: wordLyrics, source: 'netease' }
+      return { status: 'found', lyrics: timing.lyrics, source: 'netease' }
     }
 
     if (line.status === 'error') {
@@ -97,10 +107,11 @@ export class LyricsService {
     }
 
     let entry: CacheEntry
-    if (line.status === 'not-found') entry = { status: 'not-found', wordChecked, fetchedAt: this.now() }
-    else if (line.record.instrumental) entry = { status: 'instrumental', record: line.record, wordChecked, fetchedAt: this.now() }
-    else if (!recordToTimedLyrics(line.record, q.durationMs)) entry = { status: 'not-found', wordChecked, fetchedAt: this.now() }
-    else entry = { status: 'found', record: line.record, wordChecked, fetchedAt: this.now() }
+    const wordVersion = WORD_LOOKUP_VERSION
+    if (line.status === 'not-found') entry = { status: 'not-found', wordChecked, wordVersion, fetchedAt: this.now() }
+    else if (line.record.instrumental) entry = { status: 'instrumental', record: line.record, wordChecked, wordVersion, fetchedAt: this.now() }
+    else if (!recordToTimedLyrics(line.record, q.durationMs)) entry = { status: 'not-found', wordChecked, wordVersion, fetchedAt: this.now() }
+    else entry = { status: 'found', record: line.record, wordChecked, wordVersion, fetchedAt: this.now() }
 
     await this.save(key, entry)
     return this.fromEntry(entry, q, 'lrclib', useWords)
@@ -120,15 +131,44 @@ export class LyricsService {
   private async askWordLevel(q: TrackQuery, key: string, cached: CacheEntry): Promise<LyricsResult | null> {
     const word = await this.findWords(q)
     if (word.status === 'error') return null
-    if (word.status === 'found') {
-      const lyrics = yrcToTimedLyrics(word.yrc, q.durationMs)
-      if (lyrics) {
-        await this.save(key, { ...cached, status: 'found', yrc: word.yrc, wordChecked: true })
-        return { status: 'found', lyrics, source: 'netease' }
-      }
+    const timing = this.wordTiming(word, q, cached.record)
+    if (timing && word.status === 'found') {
+      const shift = timing.shiftMs ? { yrcShiftMs: timing.shiftMs } : {}
+      await this.save(key, { ...cached, status: 'found', yrc: word.yrc, ...shift, wordChecked: true, wordVersion: WORD_LOOKUP_VERSION })
+      return { status: 'found', lyrics: timing.lyrics, source: 'netease' }
     }
-    await this.save(key, { ...cached, wordChecked: true })
+    await this.save(key, { ...cached, wordChecked: true, wordVersion: WORD_LOOKUP_VERSION })
     return null
+  }
+
+  /**
+   * NetEase word timing for the song, or null. A recording whose length differs by more than a few
+   * seconds is only used when its line timing agrees with the line-timed lyrics (`reference`).
+   */
+  private wordTiming(
+    word: NeteaseResult | null,
+    q: TrackQuery,
+    reference: LrclibRecord | undefined
+  ): { lyrics: TimedLyrics; shiftMs: number } | null {
+    if (!word) return null
+    if (word.status === 'not-found') {
+      this.deps.log('lyrics: netease has no word timing for this recording')
+      return null
+    }
+    if (word.status !== 'found') return null
+    const lyrics = yrcToTimedLyrics(word.yrc, q.durationMs)
+    if (!lyrics) return null
+    if (!word.loose) return { lyrics, shiftMs: 0 }
+    const gap = Math.round(word.song.durationSec - q.durationMs / 1000)
+    const lines = reference?.syncedLyrics ? parseLrc(reference.syncedLyrics) : []
+    const check = compareLineTiming(lyrics, lines)
+    const decision = looseAlignment(check, (word.song.durationSec * 1000 - q.durationMs))
+    this.deps.log(
+      `lyrics: netease recording is ${gap > 0 ? '+' : ''}${gap} s from the player's length; line timing ` +
+        `${decision.use ? (decision.shiftMs ? `is steady, aligned by ${decision.shiftMs} ms` : 'agrees') : 'does not agree'} ` +
+        `(${check.matched} lines, median ${check.medianOffsetMs} ms, spread ${check.spreadMs} ms)`
+    )
+    return decision.use ? { lyrics: shiftLyrics(lyrics, decision.shiftMs), shiftMs: decision.shiftMs } : null
   }
 
   private async save(key: string, entry: CacheEntry): Promise<void> {
@@ -151,7 +191,7 @@ export class LyricsService {
   private fromEntry(entry: CacheEntry, q: TrackQuery, source: 'cache' | 'lrclib', useWords: boolean): LyricsResult {
     if (useWords && entry.yrc) {
       const lyrics = yrcToTimedLyrics(entry.yrc, q.durationMs)
-      if (lyrics) return { status: 'found', lyrics, source }
+      if (lyrics) return { status: 'found', lyrics: shiftLyrics(lyrics, entry.yrcShiftMs ?? 0), source }
     }
     if (entry.status === 'instrumental') return { status: 'instrumental', lyrics: null, source }
     const lyrics = entry.status === 'found' && entry.record ? recordToTimedLyrics(entry.record, q.durationMs) : null

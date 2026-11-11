@@ -54,8 +54,26 @@ describe('NeteaseClient.find', () => {
     expect(s.headers[0]?.Referer).toBe('https://music.163.com/')
   })
 
-  it('never uses a recording whose length differs by more than 3 seconds', async () => {
-    const s = scripted([{ body: { code: 200, result: { songs: [song(3, 'Paper Lanterns', 36)] } } }])
+  it('marks a recording 3-8 s longer or shorter as loose (to be confirmed by line timing)', async () => {
+    const s = scripted([
+      { body: { code: 200, result: { songs: [song(3, 'Paper Lanterns', 36)] } } },
+      { body: { code: 200, yrc: { lyric: YRC } } }
+    ])
+    const result = await client(s.fetch).find(query)
+    expect(result.status === 'found' && result.loose).toBe(true)
+  })
+
+  it('prefers a recording whose length agrees outright', async () => {
+    const s = scripted([
+      { body: { code: 200, result: { songs: [song(6, 'Paper Lanterns', 37), song(7, 'Paper Lanterns', 33)] } } },
+      { body: { code: 200, yrc: { lyric: YRC } } }
+    ])
+    const result = await client(s.fetch).find(query)
+    expect(result.status === 'found' && [result.song.id, result.loose]).toEqual([7, false])
+  })
+
+  it('never uses a recording whose length differs by more than 8 seconds', async () => {
+    const s = scripted([{ body: { code: 200, result: { songs: [song(3, 'Paper Lanterns', 41)] } } }])
     expect(await client(s.fetch).find(query)).toEqual({ status: 'not-found' })
     expect(s.urls).toHaveLength(1)
   })

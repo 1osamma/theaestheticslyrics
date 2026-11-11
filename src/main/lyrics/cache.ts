@@ -12,6 +12,10 @@ export interface CacheEntry {
   yrc?: string
   /** NetEase has answered for this song (entries without it get checked once). */
   wordChecked?: boolean
+  /** Version of the NetEase lookup that answered (an older one is asked again once). */
+  wordVersion?: number
+  /** Shift (ms) that aligns the YRC onto the player's recording (a longer intro); usually absent. */
+  yrcShiftMs?: number
   fetchedAt: number
 }
 

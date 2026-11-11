@@ -3,7 +3,7 @@ import { DEFAULT_LYRICS, type LyricsConfig } from '@shared/lyrics-style'
 import { type LyricsModel } from '../stage/model'
 import { setStyle } from '../stage/style-cache'
 import { groupUnits, lineOpacity, lyricFocus, segmentLine, stillSinging } from './lines'
-import { MOTION, cascadeDelay, entrance, springSettled, springStep, sweeps, wordAnimations, type Spring, type WordPart } from './lyric-timeline'
+import { MOTION, cascadeDelay, entrance, springSettled, springStep, sweepFeather, sweeps, wordAnimations, type Spring, type WordPart } from './lyric-timeline'
 
 /** The focused line's top sits this far down the lyrics column. */
 const ANCHOR = 0.34
@@ -16,8 +16,6 @@ const LOOKAHEAD_MS = 350
 /** Punctuation brightens over this long once the word before it has been sung. */
 const GAP_MS = 80
 /** The feathered edge of the fill window, in em (matches `.lm-fill-clip` in player.css). */
-const FEATHER_EM = 0.45
-const GLOW_ROOM_EM = 0.5
 
 const FONT_FAMILY: Record<LyricsConfig['font'], string> = {
   inter: "'Inter Variable', 'Segoe UI Variable Display', 'Segoe UI', sans-serif",
@@ -280,6 +278,7 @@ export function createLyricLines(stats?: LyricSyncStats) {
     const sweep = sweeps(fx)
     // One layout read for the whole line: every word's position, before anything is written.
     const boxes = view.words.map((w) => ({ x: w.offsetLeft, y: w.offsetTop, w: w.offsetWidth }))
+    const em = parseFloat(getComputedStyle(view.el).fontSize) || 16
     const overlays = view.words.map((w, i) => {
       const o = createOverlay(w.textContent ?? '', sweep)
       o.root.style.transform = `translate(${boxes[i]!.x}px, ${boxes[i]!.y}px)`
@@ -294,8 +293,9 @@ export function createLyricLines(stats?: LyricSyncStats) {
       const box = boxes[i]
       if (!o || !box) return
       // The window is word + glow room + feather wide; it travels word + feather (see player.css).
-      const em = (o.parts.clip.offsetWidth - box.w) / (GLOW_ROOM_EM + FEATHER_EM)
-      const travel = box.w + FEATHER_EM * em
+      const feather = sweepFeather(box.w / em)
+      if (sweep) o.root.style.setProperty('--lm-feather', `${feather.toFixed(3)}em`)
+      const travel = box.w + feather * em
       const specs = wordAnimations(fx, { start: word.start, end: word.end, travel, intensity: options.lyrics.intensity, motion: m })
       runs.push({
         el: o.root,

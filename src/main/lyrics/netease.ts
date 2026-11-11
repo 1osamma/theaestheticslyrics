@@ -11,12 +11,22 @@ export interface NeteaseSong {
 }
 
 export type NeteaseResult =
-  | { status: 'found'; yrc: string; song: NeteaseSong }
+  /**
+   * `loose`: the recording's length differs from the player's by more than STRICT_GAP_S, so its
+   * timing must be confirmed against the song's line-timed lyrics before use (service.ts).
+   */
+  | { status: 'found'; yrc: string; song: NeteaseSong; loose: boolean }
   | { status: 'not-found' }
   | { status: 'error'; message: string }
 
-/** Word timings only fit the exact recording, so its length must agree closely. */
-const MAX_GAP_S = 3
+/** Word timings only fit the exact recording: within this length gap it is taken as the same one. */
+export const STRICT_GAP_S = 3
+/**
+ * Up to this gap a recording is still considered, but only used when its line timing agrees with
+ * the song's line-timed lyrics. Spotify's media session often reports a length 3–4 s shorter than
+ * the real track, which used to reject the right recording.
+ */
+const LOOSE_GAP_S = 8
 const MAX_CANDIDATES = 3
 const MIN_TIMED_LINES = 3
 const TIMED_LINE = /^\[\d+,\d+\]/gm
@@ -67,15 +77,22 @@ export class NeteaseClient {
     const search = await this.get(`/api/cloudsearch/pc?${new URLSearchParams({ s: terms, type: '1', offset: '0', limit: '10' })}`)
     if (search.kind === 'error') return { status: 'error', message: search.message }
 
+    const gapOf = (song: NeteaseSong): number =>
+      q.durationMs > 0 && song.durationSec > 0 ? Math.abs(q.durationMs / 1000 - song.durationSec) : 0
     const candidates = toSongs(search.body)
-      .map((song) => ({ song, score: scoreMatch(q, { title: song.title, artist: song.artist, album: song.album, durationSec: song.durationSec }, MAX_GAP_S) }))
+      .map((song) => ({
+        song,
+        loose: gapOf(song) > STRICT_GAP_S,
+        score: scoreMatch(q, { title: song.title, artist: song.artist, album: song.album, durationSec: song.durationSec }, LOOSE_GAP_S)
+      }))
       .filter((c) => c.score >= MIN_SCORE)
-      .sort((a, b) => b.score - a.score)
+      // Recordings whose length agrees outright come first.
+      .sort((a, b) => Number(a.loose) - Number(b.loose) || b.score - a.score)
       .slice(0, MAX_CANDIDATES)
 
     let failure: string | null = null
     let answered = false
-    for (const { song } of candidates) {
+    for (const { song, loose } of candidates) {
       const params = new URLSearchParams({ id: String(song.id), lv: '-1', kv: '-1', tv: '-1', rv: '-1', yv: '-1', ytv: '-1', yrv: '-1' })
       const lyric = await this.get(`/api/song/lyric/v1?${params}`)
       if (lyric.kind === 'error') {
@@ -84,7 +101,7 @@ export class NeteaseClient {
       }
       answered = true
       const yrc = readYrc(lyric.body)
-      if (yrc && (yrc.match(TIMED_LINE)?.length ?? 0) >= MIN_TIMED_LINES) return { status: 'found', yrc, song }
+      if (yrc && (yrc.match(TIMED_LINE)?.length ?? 0) >= MIN_TIMED_LINES) return { status: 'found', yrc, song, loose }
     }
     // Only "every request failed" is an error; an answer without word timing means not found.
     return failure && !answered ? { status: 'error', message: failure } : { status: 'not-found' }

@@ -3,7 +3,8 @@ import type { RawSession } from '../src/main/media/protocol'
 import { AnchorTracker } from '../src/main/media/timeline'
 import { buildTimedLyrics } from '../src/main/lyrics/word-timing'
 import { lyricFocus, stillSinging, wordFill } from '../src/renderer/src/player/lines'
-import { MOTION, wordAnimations } from '../src/renderer/src/player/lyric-timeline'
+import { FEATHER_EM, MOTION, sweepFeather, wordAnimations } from '../src/renderer/src/player/lyric-timeline'
+import { compareLineTiming, looseAlignment, shiftLyrics } from '../src/main/lyrics/align'
 import { SongClock } from '../src/renderer/src/stage/clock'
 import { activeWordIndex, buildModel } from '../src/renderer/src/stage/model'
 import type { TimedLyrics } from '../src/shared/types'
@@ -175,5 +176,65 @@ describe('fast and slow words keep their timestamps', () => {
     ])!
     const second = built.lines[1]!
     expect(second.words.at(-1)!.end).toBeLessThan(10_000)
+  })
+})
+
+describe('sweep edge on short words (fast vocals)', () => {
+  it('keeps the full soft edge on ordinary words', () => {
+    expect(sweepFeather(2)).toBe(FEATHER_EM)
+    expect(sweepFeather(0.9)).toBe(FEATHER_EM)
+  })
+
+  it('lights the first letter of any word within the first third of its time', () => {
+    // The solid light reaches the word after feather / (word + feather) of the word's duration.
+    for (const wordEm of [0.28, 0.4, 0.6, 1, 2, 4]) {
+      const feather = sweepFeather(wordEm)
+      expect(feather / (wordEm + feather)).toBeLessThanOrEqual(0.34)
+    }
+  })
+
+  it('used to lag on short words with the fixed edge (the bug this guards)', () => {
+    const fixed = FEATHER_EM / (0.3 + FEATHER_EM)
+    expect(fixed).toBeGreaterThan(0.55)
+  })
+})
+
+describe('line timing agreement between two sources', () => {
+  const word = (offsets: number[]): TimedLyrics => ({
+    wordTiming: 'native',
+    lines: offsets.map((o, i) => ({ text: `line ${i} words`, start: i * 4000 + o, end: i * 4000 + o + 2000, words: [{ text: 'line', start: i * 4000 + o, end: i * 4000 + o + 2000 }] }))
+  })
+  const reference = Array.from({ length: 8 }, (_, i) => ({ start: i * 4000, text: `Line ${i}, words!` }))
+
+  it('agrees for the same recording with a steady offset', () => {
+    expect(compareLineTiming(word([120, 90, 150, 110, 130, 100, 140, 120]), reference)).toMatchObject({ agrees: true, matched: 8 })
+  })
+
+  it('disagrees for another edit (later lines shifted by seconds)', () => {
+    expect(compareLineTiming(word([0, 0, 0, 3500, 3600, 3400, 3500, 3550]), reference).agrees).toBe(false)
+  })
+
+  it('disagrees when too few lines can be compared', () => {
+    expect(compareLineTiming(word([0, 0, 0]), reference.slice(0, 3)).agrees).toBe(false)
+  })
+})
+
+describe('aligning a longer recording onto the player recording', () => {
+  it('shifts a steady offset (extra intro) onto the reference lines', () => {
+    const decision = looseAlignment({ matched: 33, medianOffsetMs: 1143, spreadMs: 272, agrees: false }, 3000)
+    expect(decision).toEqual({ use: true, shiftMs: -1143 })
+    const shifted = shiftLyrics(contiguous, decision.shiftMs)
+    expect(shifted.lines[0]!.words[0]!.start).toBe(0)
+    expect(shifted.lines[2]!.words[0]!.start).toBe(9000 - 1143)
+  })
+
+  it('applies no shift for small offsets between two hand-made syncs', () => {
+    expect(looseAlignment({ matched: 31, medianOffsetMs: -90, spreadMs: 80, agrees: true }, 3000)).toEqual({ use: true, shiftMs: 0 })
+  })
+
+  it('rejects scattered offsets or offsets larger than the length difference allows', () => {
+    expect(looseAlignment({ matched: 20, medianOffsetMs: 300, spreadMs: 900, agrees: false }, 3000).use).toBe(false)
+    expect(looseAlignment({ matched: 20, medianOffsetMs: 5200, spreadMs: 100, agrees: false }, 3000).use).toBe(false)
+    expect(looseAlignment({ matched: 3, medianOffsetMs: 0, spreadMs: 0, agrees: false }, 3000).use).toBe(false)
   })
 })
