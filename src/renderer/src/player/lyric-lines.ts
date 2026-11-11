@@ -10,6 +10,10 @@ const ANCHOR = 0.34
 const RECEDE_SCALE = 0.965
 /** The column re-pins its animations to the song clock when they drift further than this (ms). */
 const RESYNC_MS = 15
+/** A word's animations are created this long before it starts (the frame loop never sleeps longer). */
+const LOOKAHEAD_MS = 350
+/** Punctuation brightens over this long once the word before it has been sung. */
+const GAP_MS = 80
 /** The feathered edge of the fill window, in em (matches `.lm-fill-clip` in player.css). */
 const FEATHER_EM = 0.45
 const GLOW_ROOM_EM = 0.5
@@ -41,7 +45,25 @@ interface WordOverlay {
   parts: Record<WordPart, HTMLElement>
 }
 
-/** The line whose words are animating, and the compositor animations scheduled for it. */
+/**
+ * One timed piece of the active line (a word overlay, or the punctuation after a word). Its
+ * compositor animations exist only from shortly before it starts until it has finished: before
+ * and after, it rests in a static CSS state, so finished and upcoming words hold no composited
+ * layers and cost the GPU nothing per frame.
+ */
+interface Run {
+  /** The element whose class carries the static state (`is-live`, `is-done`). */
+  el: HTMLElement
+  start: number
+  /** When its last animation ends. */
+  finish: number
+  /** Creates its animations (delays relative to the line's origin). */
+  make: () => Animation[]
+  anims: Animation[]
+  state: 'idle' | 'live' | 'done'
+}
+
+/** The line whose words are animating. */
 interface ActiveLine {
   index: number
   /** Song time the animations count from (their `currentTime` is song time minus this). */
@@ -49,7 +71,7 @@ interface ActiveLine {
   /** What it was built for; a change of effect, size or layout rebuilds it. */
   key: string
   overlays: WordOverlay[]
-  anims: Animation[]
+  runs: Run[]
 }
 
 export interface LyricLinesOptions {
@@ -193,12 +215,12 @@ export function createLyricLines() {
   /** Cancels the active line's animations and returns its words to plain text. */
   function teardown(): void {
     if (!active) return
-    for (const a of active.anims) a.cancel()
+    for (const run of active.runs) for (const a of run.anims) a.cancel()
     for (const o of active.overlays) o.root.remove()
     const view = views[active.index]
     if (view) {
       for (const w of view.words) w.classList.remove('is-held')
-      for (const g of view.gaps) g.el.classList.remove('is-live')
+      for (const g of view.gaps) g.el.classList.remove('is-live', 'is-done')
     }
     active = null
     sync = null
@@ -222,7 +244,8 @@ export function createLyricLines() {
       return o
     })
     for (const w of view.words) w.classList.add('is-held')
-    const anims: Animation[] = []
+    const origin = t
+    const runs: Run[] = []
     line.words.forEach((word, i) => {
       const o = overlays[i]
       const box = boxes[i]
@@ -230,36 +253,77 @@ export function createLyricLines() {
       // The window is word + glow room + feather wide; it travels word + feather (see player.css).
       const em = (o.parts.clip.offsetWidth - box.w) / (GLOW_ROOM_EM + FEATHER_EM)
       const travel = box.w + FEATHER_EM * em
-      for (const spec of wordAnimations(fx, { start: word.start, end: word.end, travel, intensity: options.lyrics.intensity, motion: m })) {
-        anims.push(
-          o.parts[spec.part].animate(spec.keyframes as Keyframe[], {
-            delay: spec.start - t,
-            duration: spec.duration,
-            easing: spec.easing,
-            fill: 'both'
-          })
-        )
-      }
+      const specs = wordAnimations(fx, { start: word.start, end: word.end, travel, intensity: options.lyrics.intensity, motion: m })
+      runs.push({
+        el: o.root,
+        start: word.start,
+        finish: Math.max(word.end, ...specs.map((s) => s.start + s.duration)),
+        make: () =>
+          specs.map((spec) =>
+            o.parts[spec.part].animate(spec.keyframes as Keyframe[], {
+              delay: spec.start - origin,
+              duration: spec.duration,
+              easing: spec.easing,
+              fill: 'both'
+            })
+          ),
+        anims: [],
+        state: 'idle'
+      })
     })
     // Punctuation brightens when the word before it has been sung.
     for (const g of view.gaps) {
       g.el.classList.add('is-live')
       const after = g.after >= 0 ? line.words[g.after] : undefined
       const at = after ? after.end : (line.words[0]?.start ?? t)
-      anims.push(g.el.animate([{ opacity: 0.44 }, { opacity: 1 }], { delay: at - t, duration: 80, fill: 'both' }))
+      runs.push({
+        el: g.el,
+        start: at,
+        finish: at + GAP_MS,
+        make: () => [g.el.animate([{ opacity: 0.44 }, { opacity: 1 }], { delay: at - origin, duration: GAP_MS, fill: 'both' })],
+        anims: [],
+        state: 'idle'
+      })
     }
-    active = { index, origin: t, key, overlays, anims }
+    active = { index, origin, key, overlays, runs }
     sync = null
   }
 
-  /** Pins every scheduled animation to song time `t` (seek, pause, resume, drift). */
-  function pin(t: number, wallMs: number, playing: boolean): void {
+  /**
+   * Brings each run of the active line to its state at song time `t`: animations are created just
+   * before a run starts and cancelled into the static sung state (`is-done`) once it has finished.
+   */
+  function advance(t: number, playing: boolean): void {
     if (!active) return
     const at = t - active.origin
-    for (const a of active.anims) {
-      a.currentTime = at
-      if (playing) a.play()
-      else a.pause()
+    for (const run of active.runs) {
+      const next = t >= run.finish ? 'done' : t >= run.start - LOOKAHEAD_MS ? 'live' : 'idle'
+      if (next === run.state) continue
+      for (const a of run.anims) a.cancel()
+      run.anims = []
+      run.state = next
+      run.el.classList.toggle('is-done', next === 'done')
+      if (run.el.classList.contains('lm-fill')) run.el.classList.toggle('is-live', next === 'live')
+      if (next !== 'live') continue
+      run.anims = run.make()
+      for (const a of run.anims) {
+        a.currentTime = at
+        if (!playing) a.pause()
+      }
+    }
+  }
+
+  /** Pins every live animation to song time `t` (seek, pause, resume, drift). */
+  function pin(t: number, wallMs: number, playing: boolean): void {
+    if (!active) return
+    advance(t, playing)
+    const at = t - active.origin
+    for (const run of active.runs) {
+      for (const a of run.anims) {
+        a.currentTime = at
+        if (playing) a.play()
+        else a.pause()
+      }
     }
     sync = { song: t, wall: wallMs, playing }
   }
@@ -370,6 +434,7 @@ export function createLyricLines() {
       if (active && sync) {
         const expected = sync.playing ? sync.song + (wallMs - sync.wall) : sync.song
         if (settle || playing !== sync.playing || Math.abs(t - expected) > RESYNC_MS) pin(t, wallMs, playing && !settle)
+        else advance(t, sync.playing)
       }
 
       // Interlude dots sit just under the last sung line and breathe with the break's progress.

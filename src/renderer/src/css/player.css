@@ -464,6 +464,15 @@ body[data-snapshot] *::after {
 }
 
 /* Fade and Minimal keep the window open; the feather would only dim the end of the word. */
+/*
+ * Static states between animations (lyric-lines.ts creates a word's animations just before it
+ * starts and cancels them once it has finished): not yet sung shows only the dimmed copy, sung
+ * shows the white copy at rest. Neither holds a composited layer.
+ */
+.lm-fill:not(.is-live, .is-done) .lm-fill-clip {
+  visibility: hidden;
+}
+
 .lm-fill.no-sweep .lm-fill-clip {
   -webkit-mask-image: none;
   mask-image: none;
@@ -491,6 +500,11 @@ body[data-snapshot] *::after {
 /* Punctuation in the active line brightens with the word before it (an opacity animation). */
 .lm-gap.is-live {
   color: var(--lm-sung);
+  opacity: 0.44;
+}
+
+.lm-gap.is-live.is-done {
+  opacity: 1;
 }
 
 .lm-interlude {
