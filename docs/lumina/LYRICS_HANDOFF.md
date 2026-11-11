@@ -1,6 +1,6 @@
 # LUMINA Lyrics handoff
 
-State at handoff (2026-11-11): branch **`lumina/lyrics`**, created from `lumina/phase-2` @ `49639d2`,
+State at handoff (2026-11-11, updated after the performance and sync work): branch **`lumina/lyrics`**, created from `lumina/phase-2` @ `49639d2`,
 **local only (not pushed)**. `main` is untouched. Nothing is merged, and there is no pull request or
 release. **Ask the user before pushing, merging, opening a PR or releasing.**
 
@@ -31,7 +31,9 @@ Keep a reduce-animations option.
 |---|---|
 | `4adecaf` | LUMINA Lyrics: compositor word animations, six effects, spring line motion, typography (Inter, Manrope, Fraunces), settings with migration, tray submenu, settings-window Lyrics tab with live preview, per-effect snapshots |
 | `ffc38c8` | Word animations created just in time (350 ms ahead) and finished words rested statically (less GPU, same look) |
-| (this commit) | Font notices, architecture docs, this handoff |
+| `c48b015` | Font notices, architecture docs, this handoff |
+| `6bb2e5a` | **Sync fix**: word animations locked to the song clock with `startTime` (no late start while pending, no auto-rewind after a pin); measured-drift re-pin; drift counters; trace and effect-cycling debug flags |
+| (this commit) | Performance findings and status in this handoff |
 
 ## What was built
 
@@ -94,26 +96,67 @@ How to read it:
   terms (under 5% average on this GPU). Most of the remaining cost is composited text layers, not
   motion: Minimal, which barely animates, already costs 1.9%. The just-in-time change took 1 point
   off. Each figure is a single run, so expect roughly ±0.3 points of noise.
-- 240 FPS is **not** claimed for page frames. The display ran at 239 Hz; compositor animations
-  follow vsync, but no per-compositor-frame counter was recorded.
+- Page FPS counts main-thread frames only; what the screen gets is measured below from a trace.
+
+## Performance investigation (2026-11-11): verified results
+
+The user confirmed the animations look smooth on the 1440p 240 Hz OLED in real use, and asked to
+stop chasing benchmark differences unless there is a confirmed visible problem. These are the
+findings up to that point.
+
+**Why page FPS fell from 175 to 67: less JavaScript, not fewer frames.** In `lumina/phase-2` the
+main thread moved the sweep (`transform`) every frame and reported itself busy while a word was
+being sung, so the loop ran at refresh rate. Now the compositor plays the sweep and the loop
+idles between line moves. A Chromium trace (`--trace-after/--trace-window/--trace-file`, analysed
+with `PipelineReporter` and `Graphics.Pipeline.DrawAndSwap`) shows what the screen actually gets:
+
+| Measure (fixture song, lighting off, 239 Hz) | Result |
+|---|---|
+| Frames presented while words animate, on consecutive refreshes | **99.8–100%** (three runs: 1702/1702, 2753/2756, 2760/2766) |
+| Swap-to-swap interval while drawing | p50 4.17 ms, p99 4.2–4.26 ms (= 239 Hz) |
+| Dropped frames while a word animation runs | 0–1 per 10 s (startup traces including window opening: ~60 per 17 s) |
+| Other dropped frames | ~20–30 per 10 s, all idle main-thread frames (`has_compositor_animation: false`), with nothing moving on screen |
+| Drawing work per frame (render-pass record + replay) | phase-2 ≈ 220 µs, now ≈ 270 µs; render passes per frame 2.4 → 4.3–4.6 |
+
+The extra render passes are the small feathered-mask surfaces of the words currently animating.
+GPU-3D counters at this level (about 1–3%) vary more between runs than between variants. An A/B of
+removing the mask, the glow layer, the sung-copy shadow or the line transitions showed no
+difference beyond that noise, so none of those were removed and the look is unchanged.
+
+**Sync, measured (not assumed).** A running word animation's own clock is compared with the song
+clock every frame (`lyricSyncDriftMs` in the perf report). That counter found two real bugs, fixed
+in `6bb2e5a`: words could start up to ~170 ms late when a line was scheduled while the page loop
+idled, and a pin could replay an already-swept word. After the fix: **drift p50 0.3 ms, max 0.9 ms,
+no corrective re-pins** over 10 s.
+
+**Environment notes.** Two of about ten traces showed swaps at 8.3 ms (120 Hz) and 2.7 ms
+SwapBuffers stalls; repeats of the same build were clean. Brave and Wallpaper Engine were busy on
+the PC at the time, and DWM or another GPU client is the likely cause; it was not pursued.
+An experiment to shorten the animation lookahead (350 → 120 ms, fewer mask surfaces) was stopped
+before it was measured and is **not** in the code.
 
 ## Not done or not verified
 
-- Live check of Fade, Glow, Scale and Minimal with a real song, and of a seek or a font switch
-  during playback (Smooth Fill and Expressive passed live; all six passed in snapshots).
+- **Not done:** a live Spotify pass of Fade, Glow, Scale and Minimal, and of seeking, pausing,
+  resuming and switching effects mid-song. Smooth Fill and Expressive passed live, all six passed
+  in snapshots, and the pause, resume and seek paths go through the re-pin code fixed and measured
+  in `6bb2e5a`. Tools are ready: `--cycle-effects=<ms>` switches effects mid-song. Pause and seek
+  need driving Spotify through Windows media controls, which the app itself doesn't do.
 - The new animations in the always-on desktop overlay (decision 3): not started.
 - Not tried: seek-heavy use, very long lines that wrap to three lines, right-to-left scripts, and
   CJK lyrics in Fraunces (it has no CJK glyphs, so the system fallback font is used).
-- Possible further GPU savings, not tried: drop the feathered mask while a word is not sweeping,
-  or share one glow layer per line.
+- Possible further GPU savings, deliberately not pursued (no visible problem): a shorter animation
+  lookahead, or sharing one glow layer per line.
 
 ## Exact next steps
 
-1. Optionally, with a song playing, live-check the remaining effects, a seek and a font switch
-   (commands below). Fix only real issues.
-2. If the user wants, bring the effects to the always-on overlay (`src/renderer/src/stage/`), with
+1. **The user's priority now: the visual quality, creativity and customisation of the lyric
+   text effects** (not lighting, not benchmark numbers). Ask what to build first.
+2. When convenient, live-check the remaining effects with seeks, pauses and mid-song effect
+   switches (commands below). Fix only visible issues.
+3. Only when the user asks: bring the effects to the always-on overlay (`src/renderer/src/stage/`), with
    the same `lyric-timeline.ts` plans. Fullscreen remains the priority.
-3. **Ask** before pushing `lumina/lyrics`, merging, opening a PR or releasing.
+4. **Ask** before pushing `lumina/lyrics`, merging, opening a PR, releasing or starting a new phase.
 
 ## Commands to resume
 
@@ -131,6 +174,10 @@ npm run snapshot
 - Live capture with a throwaway profile (play a song in Spotify first):
   `TAL_PROFILE=<dir> TAL_NO_LOCK=1 npx electron . --open-lock-after=2500 --perf-after=4000 --perf-window=10000 --perf-file=<json> --capture-series=<prefix> --capture-start=6000 --capture-every=700 --capture-count=8 --quit-after=14000`
   To test an effect, put `{"version":2,"lyricEffect":"expressive"}` in `<dir>/settings.json` first.
+- Sync and frames: add `--perf-after=6000 --perf-window=10000 --perf-file=<json>` (see
+  `lyricSyncDriftMs`, `lyricRepins`) and `--trace-after=6000 --trace-window=10000 --trace-file=<json>`
+  (allow about 8 s after the window for the trace to be written before `--quit-after`).
+  `--cycle-effects=4000` switches the effect every 4 s.
 - `--capture-lighting=<png>` saves the settings window: the Lyrics tab to `<png>`, the Lighting
   tab to `<png>-lighting.png`.
 
@@ -138,7 +185,7 @@ npm run snapshot
 
 > Continue LUMINA on branch `lumina/lyrics` in `C:\Users\osama\Desktop\lumina` (my fork
 > `1osamma/theaestheticslyrics`). Read `docs/lumina/LYRICS_HANDOFF.md` first. Lyrics and text
-> effects are the priority, not lighting. Next: live-check the remaining lyric effects (Fade, Glow,
-> Scale, Minimal), a seek and a font switch with real Spotify word timing (I'll play a song), fixing
-> only real issues. Then ask me before starting the desktop-overlay version. Run typecheck, tests and the build, commit locally, and don't push,
-> merge or open a PR without asking me.
+> effects are the priority, not lighting or benchmarks (performance is accepted as smooth). Next:
+> improve the visual quality, creativity and customisation of the lyric text effects; propose
+> ideas before large changes. Ask me before starting the desktop-overlay version. Run typecheck,
+> tests and the build, commit locally, and don't push, merge or open a PR without asking me.
