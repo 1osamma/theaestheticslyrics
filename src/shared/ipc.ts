@@ -1,5 +1,6 @@
 import type { AudioAnalysisFrame, AudioStatus } from './audio-frame'
 import type { AmbientPalette, LightingConfig, LightingSettings } from './lighting'
+import type { LyricsSettings } from './lyrics-style'
 import type {
   Artwork,
   ColorRole,
@@ -87,8 +88,11 @@ export interface EdgeState {
 }
 
 /** The LUMINA Lighting settings window. */
+/** What the LUMINA settings window shows and may change: lighting, lyrics and Reduce animations. */
+export type PanelSettings = LightingSettings & LyricsSettings & { reducedMotion: boolean }
+
 export interface LightingPanelState {
-  settings: LightingSettings
+  settings: PanelSettings
   displays: { id: number; label: string }[]
   audio: AudioStatus
   /** Edge lighting windows currently showing. */
@@ -97,6 +101,8 @@ export interface LightingPanelState {
   edgeHeldBy: string | null
   paused: boolean
   gpu: boolean
+  /** The tab the window was last opened on (from the tray); `seq` changes on every open. */
+  open?: { tab: 'lyrics' | 'lighting'; seq: number }
 }
 
 export interface ColorsState {
@@ -135,8 +141,8 @@ export interface EdgeApi {
 
 export interface LightingApi {
   get(): Promise<LightingPanelState>
-  /** Only lighting keys are accepted; the main process validates every value. */
-  set(patch: Partial<LightingSettings>): void
+  /** Only lighting, lyrics and Reduce animations keys are accepted; the main process validates every value. */
+  set(patch: Partial<PanelSettings>): void
   setPaused(paused: boolean): void
   onState(cb: (state: LightingPanelState) => void): () => void
 }

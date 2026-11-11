@@ -1,21 +1,30 @@
 import '../css/tokens.css'
 import '../css/lighting.css'
-import type { LightingPanelState } from '@shared/ipc'
+import type { LightingPanelState, PanelSettings } from '@shared/ipc'
 import {
   AUDIO_SOURCE_LABELS,
   LIGHTING_MODES,
   LIGHTING_MODE_LABELS,
   type AudioSource,
   type EdgeSides,
-  type LightingFps,
-  type LightingSettings
+  type LightingFps
 } from '@shared/lighting'
+import { createLyricsSection, type PanelSection } from './lyrics-section'
 
 const api = window.lyricsApp.lighting
 const root = document.getElementById('lighting')!
 
-type LevelKey = 'lightingBrightness' | 'audioSensitivity' | 'bassStrength' | 'lightingSmoothing' | 'glowRadius' | 'edgeThickness' | 'edgeSpread' | 'edgeSoftness'
-type ToggleKey = 'fullscreenLighting' | 'edgeLighting' | 'playerEdgeGlow' | 'pauseInFullscreen' | 'edgeAtStartup'
+type LevelKey =
+  | 'lightingBrightness'
+  | 'audioSensitivity'
+  | 'bassStrength'
+  | 'lightingSmoothing'
+  | 'glowRadius'
+  | 'edgeThickness'
+  | 'edgeSpread'
+  | 'edgeSoftness'
+  | 'lyricIntensity'
+type ToggleKey = 'fullscreenLighting' | 'edgeLighting' | 'playerEdgeGlow' | 'pauseInFullscreen' | 'edgeAtStartup' | 'reducedMotion'
 
 const FPS_LABELS: Record<LightingFps, string> = {
   30: '30 FPS · Power saving',
@@ -35,7 +44,7 @@ let state: LightingPanelState | null = null
 const sendTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 /** Sends a change at most every 80 ms per control while dragging, and always the final value. */
-function send(key: keyof LightingSettings, patch: Partial<LightingSettings>, final = false): void {
+function send(key: keyof PanelSettings, patch: Partial<PanelSettings>, final = false): void {
   const pending = sendTimers.get(key)
   if (pending && !final) return
   if (pending) clearTimeout(pending)
@@ -118,14 +127,24 @@ function select<T extends string | number>(label: string, options: { value: T; t
   }
 }
 
-// ---------- Header and status ----------
+// ---------- Header, tabs and status ----------
 const header = el('header', 'lp-header')
 const titles = el('div')
-titles.append(el('div', 'lp-eyebrow', 'LUMINA'), el('h1', undefined, 'Lighting'))
+const heading = el('h1', undefined, 'Lyrics')
+titles.append(el('div', 'lp-eyebrow', 'LUMINA'), heading)
 const pause = el('button', 'lp-pause', 'Pause Lighting')
 pause.type = 'button'
 pause.addEventListener('click', () => api.setPaused(!state?.paused))
 header.append(titles, pause)
+
+const tabs = el('nav', 'lp-tabs')
+const tabButtons = (['lyrics', 'lighting'] as const).map((tab) => {
+  const b = el('button', 'lp-tab', tab === 'lyrics' ? 'Lyrics' : 'Lighting')
+  b.type = 'button'
+  b.addEventListener('click', () => showTab(tab))
+  tabs.append(b)
+  return { tab, b }
+})
 
 const status = el('div', 'lp-status')
 const audioLine = el('div', 'lp-status-line')
@@ -173,8 +192,19 @@ const source = select<AudioSource>(
   'All desktop audio reacts to everything playing on this PC, not only Spotify. Spotify only ignores other apps.'
 )
 
-root.append(
-  header,
+const lyricsSection: PanelSection = createLyricsSection({
+  send,
+  level: (label, hint) => level('lyricIntensity', label, hint),
+  toggle: (label, hint) => toggle('reducedMotion', label, hint),
+  section
+})
+const lyricsPane = el('div', 'lp-pane')
+lyricsPane.dataset.tab = 'lyrics'
+lyricsPane.append(...lyricsSection.nodes)
+
+const lightingPane = el('div', 'lp-pane')
+lightingPane.dataset.tab = 'lighting'
+lightingPane.append(
   status,
   section('Mode', modeGroup),
   section(
@@ -208,9 +238,28 @@ root.append(
   )
 )
 
+root.append(header, tabs, lyricsPane, lightingPane)
+
+function showTab(next: 'lyrics' | 'lighting'): void {
+  heading.textContent = next === 'lyrics' ? 'Lyrics' : 'Lighting'
+  pause.hidden = next !== 'lighting'
+  for (const { tab: t, b } of tabButtons) b.classList.toggle('is-on', t === next)
+  lyricsPane.hidden = next !== 'lyrics'
+  lightingPane.hidden = next !== 'lighting'
+  lyricsSection.setActive(next === 'lyrics')
+  document.title = `LUMINA ${heading.textContent}`
+}
+showTab('lyrics')
+let openSeq = -1
+
 function render(next: LightingPanelState): void {
   state = next
   const s = next.settings
+  if (next.open && next.open.seq !== openSeq) {
+    openSeq = next.open.seq
+    showTab(next.open.tab)
+  }
+  lyricsSection.render(s, next.gpu)
   pause.textContent = next.paused ? 'Resume Lighting' : 'Pause Lighting'
   pause.classList.toggle('is-paused', next.paused)
   document.body.classList.toggle('is-paused', next.paused)

@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, screen, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
-import { IPC, type LightingPanelState } from '@shared/ipc'
-import { pickLightingPatch, type LightingSettings } from '@shared/lighting'
+import { IPC, type LightingPanelState, type PanelSettings } from '@shared/ipc'
+import { pickLightingPatch } from '@shared/lighting'
+import { pickLyricsPatch } from '@shared/lyrics-style'
 import type { Log } from '../logger'
 import { harden, loadPage, secureWebPreferences } from './windows'
 
@@ -11,20 +12,31 @@ export interface LightingWindowDeps {
   log: Log
   iconPath: string
   state: () => LightingPanelState
-  /** Already restricted to lighting keys; the settings store validates every value. */
-  update: (patch: Partial<LightingSettings>) => void
+  /** Already restricted to panel keys; the settings store validates every value. */
+  update: (patch: Partial<PanelSettings>) => void
   setPaused: (paused: boolean) => void
 }
 
-/** The LUMINA Lighting settings window (tray → LUMINA Lighting → Lighting Settings…). */
+/** Keeps only the keys the settings window may change (lighting, lyrics, Reduce animations). */
+export function pickPanelPatch(raw: unknown): Partial<PanelSettings> {
+  const out: Partial<PanelSettings> = { ...pickLightingPatch(raw), ...pickLyricsPatch(raw) }
+  if (typeof raw === 'object' && raw !== null && 'reducedMotion' in raw) {
+    const v = (raw as { reducedMotion: unknown }).reducedMotion
+    if (typeof v === 'boolean') out.reducedMotion = v
+  }
+  return out
+}
+
+/** The LUMINA settings window: Lyrics and Lighting (tray → LUMINA Lyrics / Lighting → Settings…). */
 export class LightingWindow {
   private win: BrowserWindow | null = null
+  private opened: { tab: 'lyrics' | 'lighting'; seq: number } = { tab: 'lyrics', seq: 0 }
 
   constructor(private readonly deps: LightingWindowDeps) {
-    ipcMain.handle(IPC.lightingGet, (e: IpcMainInvokeEvent) => (this.fromOwn(e) ? deps.state() : null))
+    ipcMain.handle(IPC.lightingGet, (e: IpcMainInvokeEvent) => (this.fromOwn(e) ? this.state() : null))
     ipcMain.on(IPC.lightingSet, (e: IpcMainEvent, patch: unknown) => {
       if (!this.fromOwn(e)) return
-      const picked = pickLightingPatch(patch)
+      const picked = pickPanelPatch(patch)
       if (Object.keys(picked).length) deps.update(picked)
     })
     ipcMain.on(IPC.lightingPause, (e: IpcMainEvent, paused: unknown) => {
@@ -32,8 +44,11 @@ export class LightingWindow {
     })
   }
 
-  open(): void {
+  /** Opens (or focuses) the window on the Lyrics or Lighting tab. */
+  open(tab: 'lyrics' | 'lighting' = 'lyrics'): void {
+    this.opened = { tab, seq: this.opened.seq + 1 }
     if (this.win && !this.win.isDestroyed()) {
+      this.push(this.deps.state())
       if (this.win.isMinimized()) this.win.restore()
       this.win.show()
       this.win.focus()
@@ -52,7 +67,7 @@ export class LightingWindow {
       maximizable: false,
       minimizable: true,
       fullscreenable: false,
-      title: 'LUMINA Lighting',
+      title: 'LUMINA Settings',
       icon: this.deps.iconPath,
       backgroundColor: '#0b0b0f',
       autoHideMenuBar: true,
@@ -69,7 +84,11 @@ export class LightingWindow {
   }
 
   push(state: LightingPanelState): void {
-    if (this.win && !this.win.isDestroyed()) this.win.webContents.send(IPC.lightingState, state)
+    if (this.win && !this.win.isDestroyed()) this.win.webContents.send(IPC.lightingState, { ...state, open: this.opened })
+  }
+
+  private state(): LightingPanelState {
+    return { ...this.deps.state(), open: this.opened }
   }
 
   /** Debug/E2E helper: saves what the window shows. */

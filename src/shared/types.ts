@@ -1,3 +1,5 @@
+import type { LyricsConfig } from './lyrics-style'
+
 /** The four display styles, mirroring Verci's menu. */
 export type StyleId = 'ship' | 'fisheye' | 'fisheye-visual' | 'visual'
 
@@ -72,15 +74,14 @@ export const STYLE_LABELS: Record<StyleId, string> = {
 /** What the full-screen lyrics screen shows: the LUMINA player, or the classic lyric style on its own. */
 export type FullscreenLayout = 'player' | 'lyrics'
 
-export type AnimationIntensity = 'low' | 'medium' | 'high'
-
 /** Highest frame rate the lyrics screen draws at; 0 follows the display's refresh rate. */
 export type FrameRateCap = 0 | 30 | 60 | 120
 
 /** How the LUMINA player looks. Only settings that work today live here. */
 export interface PlayerConfig {
-  animation: AnimationIntensity
-  /** Freezes ambient drift, lyric scrolling, lift and glow (also follows Windows' own setting). */
+  /** How the lyrics animate and are set (effect, intensity, transition speed, typography). */
+  lyrics: LyricsConfig
+  /** Reduce animations: words simply brighten, lines don't drift or glow (also follows Windows' own setting). */
   reducedMotion: boolean
   /** Multiplies the player's lyric font size. */
   lyricScale: number

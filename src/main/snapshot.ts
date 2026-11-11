@@ -5,6 +5,7 @@ import { SILENT_FRAME, type AudioAnalysisFrame } from '@shared/audio-frame'
 import { DEMO_LRC, DEMO_MOMENTS, DEMO_TRACK } from '@shared/demo-song'
 import { IPC, type EdgeState, type StageState } from '@shared/ipc'
 import type { LightingConfig } from '@shared/lighting'
+import { DEFAULT_LYRICS, LYRIC_EFFECTS, type LyricsConfig } from '@shared/lyrics-style'
 import { DEFAULT_PALETTE } from '@shared/palette-defaults'
 import { STYLE_IDS, type Artwork, type Palette, type PlayerConfig, type ShowOn, type StyleId } from '@shared/types'
 import { demoArtBitmap } from './demo-art'
@@ -26,7 +27,7 @@ export interface SnapshotOptions {
 }
 
 const SNAPSHOT_PLAYER: PlayerConfig = {
-  animation: 'medium',
+  lyrics: { ...DEFAULT_LYRICS },
   reducedMotion: false,
   lyricScale: 1,
   gpu: true
@@ -173,6 +174,26 @@ export async function runSnapshots(opts: SnapshotOptions): Promise<string[]> {
       })
       audio(LOUD_BEAT)
       await shoot('player-beat-edges', DEMO_MOMENTS[1]!, 10_000)
+      win.webContents.send(IPC.stageState, { ...baseState('ship', 'player'), ambient })
+
+      // LUMINA Lyrics: every word effect mid-line, then the alternative typography.
+      const withLyrics = (lyrics: Partial<LyricsConfig>): StageState => {
+        const base = baseState('ship', 'player')
+        return { ...base, ambient, config: { ...base.config, player: { ...SNAPSHOT_PLAYER, lyrics: { ...DEFAULT_LYRICS, ...lyrics } } } }
+      }
+      audio(QUIET)
+      for (const effect of LYRIC_EFFECTS) {
+        win.webContents.send(IPC.stageState, withLyrics({ effect }))
+        await shoot(`lyrics-${effect}`, DEMO_MOMENTS[1]! + 420, 12_000)
+      }
+      win.webContents.send(IPC.stageState, withLyrics({ align: 'center' }))
+      await shoot('lyrics-centre', DEMO_MOMENTS[1]! + 420, 12_000)
+      win.webContents.send(IPC.stageState, withLyrics({ font: 'fraunces' }))
+      await shoot('lyrics-fraunces', DEMO_MOMENTS[1]! + 420, 12_000)
+      win.webContents.send(IPC.stageState, withLyrics({ font: 'fraunces', align: 'center', color: 'album', spacing: 'airy' }))
+      await shoot('lyrics-fraunces-centre-album', DEMO_MOMENTS[1]! + 420, 12_000)
+      win.webContents.send(IPC.stageState, withLyrics({ font: 'manrope', weight: 800, intensity: 1, effect: 'expressive' }))
+      await shoot('lyrics-manrope-expressive-max', DEMO_MOMENTS[1]! + 420, 12_000)
       win.webContents.send(IPC.stageState, { ...baseState('ship', 'player'), ambient })
 
       // No album art: the card falls back to a gradient and the light to the lyric colours.

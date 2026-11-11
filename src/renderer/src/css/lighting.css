@@ -1,6 +1,6 @@
 @import '@fontsource-variable/inter';
 
-/* LUMINA Lighting settings window, on the LUMINA design tokens (tokens.css). */
+/* LUMINA settings window (Lyrics and Lighting tabs), on the LUMINA design tokens (tokens.css). */
 
 * {
   box-sizing: border-box;
@@ -77,7 +77,7 @@ button {
   color: #ffd9a0;
 }
 
-body.is-paused .lp-section {
+body.is-paused .lp-pane[data-tab='lighting'] .lp-section {
   opacity: 0.55;
 }
 
@@ -318,4 +318,144 @@ select {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #2c2c36;
+}
+
+/* ---------- Tabs ---------- */
+
+.lp-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: var(--lm-radius-pill);
+  background: var(--lm-surface-2);
+}
+
+.lp-tab {
+  padding: 7px 0;
+  border: 0;
+  border-radius: var(--lm-radius-pill);
+  background: transparent;
+  font-weight: 600;
+  color: var(--lm-text-2);
+  transition:
+    background var(--lm-dur-fast) var(--lm-ease-out),
+    color var(--lm-dur-fast) var(--lm-ease-out);
+}
+
+.lp-tab:hover {
+  color: var(--lm-text-1);
+}
+
+.lp-tab.is-on {
+  background: var(--lm-surface-3);
+  color: var(--lm-text-1);
+  box-shadow: inset 0 0 0 1px var(--lm-glass-border);
+}
+
+.lp-pane[hidden],
+.lp-pause[hidden] {
+  display: none;
+}
+
+/* ---------- Lyrics tab ---------- */
+
+/* The live preview: the real lyric renderer playing a short demo verse. */
+.lp-preview {
+  position: relative;
+  height: 168px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border-radius: var(--lm-radius-md);
+  border: 1px solid var(--lm-glass-border);
+  background:
+    radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--lm-accent) 26%, transparent), transparent 60%),
+    radial-gradient(circle at 85% 90%, color-mix(in srgb, var(--lm-accent-2) 22%, transparent), transparent 60%),
+    #07070b;
+  --lm-sung: var(--lm-text-1);
+  --lm-unsung: rgba(255, 255, 255, 0.44);
+  --lm-fs-lyric: 23px;
+}
+
+.lp-preview-stage {
+  position: absolute;
+  inset: 0 18px;
+}
+
+.lp-preview-tag {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lm-text-3);
+}
+
+.lp-effects {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.lp-mode:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.lp-hint {
+  min-height: 2.6em;
+  margin: 8px 2px 4px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--lm-text-3);
+}
+
+.lp-seg-row {
+  grid-template-columns: 1fr minmax(0, 220px);
+}
+
+.lp-seg .lp-mode {
+  padding: 6px 2px;
+}
+
+.lp-fonts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.lp-font {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--lm-radius-md);
+  background: var(--lm-surface-2);
+  color: var(--lm-text-2);
+  transition:
+    background var(--lm-dur-fast) var(--lm-ease-out),
+    color var(--lm-dur-fast) var(--lm-ease-out);
+}
+
+.lp-font:hover {
+  color: var(--lm-text-1);
+}
+
+.lp-font.is-on {
+  background: var(--lm-surface-3);
+  border-color: var(--lm-glass-border);
+  color: var(--lm-text-1);
+}
+
+.lp-font-sample {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.lp-font-name {
+  font-size: 11px;
+  font-weight: 600;
 }

@@ -1,10 +1,10 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { LIGHTING_FPS, LIGHTING_MODES, type AudioSource, type EdgeDisplays, type LightingSettings } from '@shared/lighting'
+import { DEFAULT_LYRICS_SETTINGS, sanitizeLyricsSettings, type LyricsSettings } from '@shared/lyrics-style'
 import { DEFAULT_COLORS, HEX_COLOR } from '@shared/palette-defaults'
 import {
   STYLE_IDS,
-  type AnimationIntensity,
   type ColorRole,
   type FrameRateCap,
   type FullscreenLayout,
@@ -17,7 +17,7 @@ export type IdleMinutes = 0 | 1 | 2 | 5
 
 export type { EdgeDisplays }
 
-export interface Settings extends LightingSettings {
+export interface Settings extends LightingSettings, LyricsSettings {
   /** 2 since LUMINA lighting (Phase 2); version-1 files are migrated on load. */
   version: 2
   style: StyleId
@@ -44,20 +44,19 @@ export interface Settings extends LightingSettings {
   wordLevel: boolean
   /** Full-screen view: the LUMINA player, or the classic lyric style alone. */
   layout: FullscreenLayout
-  animation: AnimationIntensity
-  /** Calmer player: no drift, scrolling, lift or glow. Windows' own setting also turns this on. */
+  /** Reduce animations: words simply brighten, lines don't drift or glow. Windows' own setting also turns this on. */
   reducedMotion: boolean
   /** Player lyric size multiplier, one of LYRIC_SCALE_CHOICES. */
   lyricScale: number
   frameRateCap: FrameRateCap
-  // The LUMINA Lighting fields come from LightingSettings (src/shared/lighting.ts).
+  // The LUMINA Lighting fields come from LightingSettings (src/shared/lighting.ts),
+  // the LUMINA Lyrics fields (lyricEffect, lyricIntensity, ...) from LyricsSettings (src/shared/lyrics-style.ts).
 }
 
 export const IDLE_CHOICES: readonly IdleMinutes[] = [0, 1, 2, 5]
 export const OFFSET_LIMIT_MS = 1000
 export const AUDIO_SOURCES: readonly AudioSource[] = ['system', 'spotify']
 export const LYRIC_SCALE_CHOICES: readonly number[] = [0.85, 1, 1.15, 1.3]
-export const ANIMATION_CHOICES: readonly AnimationIntensity[] = ['low', 'medium', 'high']
 export const FRAME_RATE_CHOICES: readonly FrameRateCap[] = [0, 120, 60, 30]
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -75,7 +74,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   lockOnReturn: false,
   wordLevel: true,
   layout: 'player',
-  animation: 'medium',
+  ...DEFAULT_LYRICS_SETTINGS,
   reducedMotion: false,
   lyricScale: 1,
   frameRateCap: 0,
@@ -157,7 +156,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     lockOnReturn: typeof r.lockOnReturn === 'boolean' ? r.lockOnReturn : DEFAULT_SETTINGS.lockOnReturn,
     wordLevel: typeof r.wordLevel === 'boolean' ? r.wordLevel : DEFAULT_SETTINGS.wordLevel,
     layout: r.layout === 'player' || r.layout === 'lyrics' ? r.layout : DEFAULT_SETTINGS.layout,
-    animation: pickChoice(r.animation, ANIMATION_CHOICES, DEFAULT_SETTINGS.animation),
+    ...sanitizeLyricsSettings(r),
     reducedMotion: typeof r.reducedMotion === 'boolean' ? r.reducedMotion : DEFAULT_SETTINGS.reducedMotion,
     lyricScale: pickChoice(r.lyricScale, LYRIC_SCALE_CHOICES, DEFAULT_SETTINGS.lyricScale),
     frameRateCap: pickChoice(r.frameRateCap, FRAME_RATE_CHOICES, DEFAULT_SETTINGS.frameRateCap),

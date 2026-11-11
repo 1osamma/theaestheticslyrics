@@ -3,7 +3,16 @@ import { STYLE_IDS, STYLE_LABELS, type ColorRole, type LyricsStatus, type Palett
 import type { AudioStatus } from '@shared/audio-frame'
 import { LIGHTING_MODES, LIGHTING_MODE_LABELS, type LightingSettings } from '@shared/lighting'
 import {
-  ANIMATION_CHOICES,
+  LYRIC_EFFECTS,
+  LYRIC_EFFECT_LABELS,
+  LYRIC_FONTS,
+  LYRIC_FONT_LABELS,
+  LYRIC_SPACINGS,
+  LYRIC_TRANSITIONS,
+  LYRIC_WEIGHTS,
+  type LyricsSettings
+} from '@shared/lyrics-style'
+import {
   FRAME_RATE_CHOICES,
   LYRIC_SCALE_CHOICES,
   type IdleMinutes,
@@ -28,8 +37,8 @@ export interface TrayModel {
   }
 }
 
-/** Settings the Player submenu and Full-Screen View change. */
-export type PlayerSettings = Pick<Settings, 'layout' | 'animation' | 'reducedMotion' | 'lyricScale' | 'frameRateCap'>
+/** Settings the LUMINA Lyrics submenu and Full-Screen View change. */
+export type PlayerSettings = Pick<Settings, 'layout' | 'reducedMotion' | 'lyricScale' | 'frameRateCap'> & LyricsSettings
 
 export interface TrayActions {
   setStyle(style: StyleId): void
@@ -49,7 +58,7 @@ export interface TrayActions {
   setPlayer(patch: Partial<PlayerSettings>): void
   setLighting(patch: Partial<LightingSettings>): void
   setLightingPaused(paused: boolean): void
-  openLightingSettings(): void
+  openLightingSettings(tab?: 'lyrics' | 'lighting'): void
   quit(): void
 }
 
@@ -78,7 +87,20 @@ export function audioLine(audio: AudioStatus): string | null {
   if (audio.state === 'waiting') return `Audio: ${audio.message || 'waiting'}`
   return audio.mode === 'process' ? 'Audio: Spotify only' : 'Audio: all desktop audio (not Spotify only)'
 }
-const ANIMATION_LABELS: Record<Settings['animation'], string> = { low: 'Subtle', medium: 'Standard', high: 'Expressive' }
+const LYRIC_INTENSITY: { value: number; label: string }[] = [
+  { value: 0.2, label: 'Subtle' },
+  { value: 0.4, label: 'Soft' },
+  { value: 0.6, label: 'Standard (Default)' },
+  { value: 0.8, label: 'Strong' },
+  { value: 1, label: 'Maximum' }
+]
+const TRANSITION_LABELS: Record<LyricsSettings['lyricTransition'], string> = {
+  relaxed: 'Relaxed',
+  balanced: 'Balanced (Default)',
+  snappy: 'Snappy'
+}
+const WEIGHT_LABELS: Record<LyricsSettings['lyricWeight'], string> = { 600: 'Semibold', 700: 'Bold (Default)', 800: 'Extra Bold' }
+const SPACING_LABELS: Record<LyricsSettings['lyricSpacing'], string> = { compact: 'Compact', normal: 'Normal', airy: 'Airy' }
 const LYRIC_SCALE_LABELS = ['Small', 'Default', 'Large', 'Extra Large']
 const frameRateLabel = (fps: number): string => (fps === 0 ? 'Match Display' : `${fps} FPS`)
 
@@ -217,7 +239,7 @@ export class TrayMenu {
           checked: l.paused,
           click: (item) => a.setLightingPaused(item.checked)
         },
-        { label: 'Lighting Settings…', click: () => a.openLightingSettings() }
+        { label: 'Lighting Settings…', click: () => a.openLightingSettings('lighting') }
       ]
     }
   }
@@ -257,13 +279,56 @@ export class TrayMenu {
         submenu: STYLE_IDS.map((id) => radio(STYLE_LABELS[id], s.style === id, () => a.setStyle(id)))
       },
       {
-        label: 'Player',
+        label: 'LUMINA Lyrics',
         submenu: [
+          { label: 'Lyrics Settings…', click: () => a.openLightingSettings('lyrics') },
+          { type: 'separator' },
           {
-            label: 'Animation',
-            submenu: ANIMATION_CHOICES.map((v) =>
-              radio(ANIMATION_LABELS[v], s.animation === v, () => a.setPlayer({ animation: v }))
+            label: 'Effect',
+            submenu: LYRIC_EFFECTS.map((v) =>
+              radio(LYRIC_EFFECT_LABELS[v], s.lyricEffect === v, () => a.setPlayer({ lyricEffect: v }))
             )
+          },
+          {
+            label: 'Intensity',
+            submenu: LYRIC_INTENSITY.map(({ value, label }) =>
+              radio(label, Math.abs(s.lyricIntensity - value) < 0.05, () => a.setPlayer({ lyricIntensity: value }))
+            )
+          },
+          {
+            label: 'Transition Speed',
+            submenu: LYRIC_TRANSITIONS.map((v) =>
+              radio(TRANSITION_LABELS[v], s.lyricTransition === v, () => a.setPlayer({ lyricTransition: v }))
+            )
+          },
+          { type: 'separator' },
+          {
+            label: 'Font',
+            submenu: LYRIC_FONTS.map((v) => radio(LYRIC_FONT_LABELS[v], s.lyricFont === v, () => a.setPlayer({ lyricFont: v })))
+          },
+          {
+            label: 'Weight',
+            submenu: LYRIC_WEIGHTS.map((v) => radio(WEIGHT_LABELS[v], s.lyricWeight === v, () => a.setPlayer({ lyricWeight: v })))
+          },
+          {
+            label: 'Alignment',
+            submenu: [
+              radio('Left', s.lyricAlign === 'left', () => a.setPlayer({ lyricAlign: 'left' })),
+              radio('Centre', s.lyricAlign === 'center', () => a.setPlayer({ lyricAlign: 'center' }))
+            ]
+          },
+          {
+            label: 'Line Spacing',
+            submenu: LYRIC_SPACINGS.map((v) =>
+              radio(SPACING_LABELS[v], s.lyricSpacing === v, () => a.setPlayer({ lyricSpacing: v }))
+            )
+          },
+          {
+            label: 'Colour',
+            submenu: [
+              radio('White with Album Glow', s.lyricColor === 'white', () => a.setPlayer({ lyricColor: 'white' })),
+              radio('Album Tinted', s.lyricColor === 'album', () => a.setPlayer({ lyricColor: 'album' }))
+            ]
           },
           {
             label: 'Lyric Size',
@@ -272,7 +337,7 @@ export class TrayMenu {
             )
           },
           {
-            label: 'Reduce Motion',
+            label: 'Reduce Animations',
             type: 'checkbox',
             checked: s.reducedMotion,
             click: (item) => a.setPlayer({ reducedMotion: item.checked })

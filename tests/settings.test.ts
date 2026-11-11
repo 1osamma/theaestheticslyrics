@@ -73,7 +73,8 @@ describe('LUMINA player settings', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
       version: 2,
       layout: 'player',
-      animation: 'medium',
+      lyricEffect: 'fill',
+      lyricIntensity: 0.6,
       reducedMotion: false,
       lyricScale: 1,
       frameRateCap: 0
@@ -109,16 +110,14 @@ describe('LUMINA player settings', () => {
     const ok = sanitizeSettings({
       version: 2,
       layout: 'lyrics',
-      animation: 'high',
       reducedMotion: true,
       lyricScale: 1.3,
       frameRateCap: 60
     })
-    expect(ok).toMatchObject({ layout: 'lyrics', animation: 'high', reducedMotion: true, lyricScale: 1.3, frameRateCap: 60 })
-    const bad = sanitizeSettings({ version: 2, layout: 'grid', animation: 'wild', reducedMotion: 1, lyricScale: 4, frameRateCap: 240 })
+    expect(ok).toMatchObject({ layout: 'lyrics', reducedMotion: true, lyricScale: 1.3, frameRateCap: 60 })
+    const bad = sanitizeSettings({ version: 2, layout: 'grid', reducedMotion: 1, lyricScale: 4, frameRateCap: 240 })
     expect(bad).toMatchObject({
       layout: DEFAULT_SETTINGS.layout,
-      animation: DEFAULT_SETTINGS.animation,
       reducedMotion: DEFAULT_SETTINGS.reducedMotion,
       lyricScale: DEFAULT_SETTINGS.lyricScale,
       frameRateCap: DEFAULT_SETTINGS.frameRateCap
@@ -240,5 +239,84 @@ describe('SettingsStore', () => {
     const file = tempFile()
     writeFileSync(file, '{not json', 'utf8')
     expect(new SettingsStore(file).get()).toEqual(DEFAULT_SETTINGS)
+  })
+})
+
+describe('LUMINA Lyrics settings', () => {
+  it('defaults to Smooth Fill at standard intensity, Inter Bold, left aligned', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      lyricEffect: 'fill',
+      lyricIntensity: 0.6,
+      lyricTransition: 'balanced',
+      lyricFont: 'inter',
+      lyricWeight: 700,
+      lyricAlign: 'left',
+      lyricSpacing: 'normal',
+      lyricColor: 'white'
+    })
+  })
+
+  it('carries the old Animation level over as an intensity', () => {
+    expect(sanitizeSettings({ version: 2, animation: 'low' }).lyricIntensity).toBe(0.35)
+    expect(sanitizeSettings({ version: 2, animation: 'medium' }).lyricIntensity).toBe(0.6)
+    expect(sanitizeSettings({ version: 2, animation: 'high' }).lyricIntensity).toBe(0.9)
+    expect(sanitizeSettings({ version: 2, animation: 'wild' }).lyricIntensity).toBe(0.6)
+    // A stored intensity wins over a leftover animation field.
+    expect(sanitizeSettings({ version: 2, animation: 'high', lyricIntensity: 0.2 }).lyricIntensity).toBe(0.2)
+    expect(sanitizeSettings({ version: 2, animation: 'high' })).not.toHaveProperty('animation')
+  })
+
+  it('keeps valid lyric choices and repairs invalid ones field by field', () => {
+    const ok = sanitizeSettings({
+      version: 2,
+      lyricEffect: 'expressive',
+      lyricIntensity: 0.83,
+      lyricTransition: 'snappy',
+      lyricFont: 'fraunces',
+      lyricWeight: 800,
+      lyricAlign: 'center',
+      lyricSpacing: 'airy',
+      lyricColor: 'album'
+    })
+    expect(ok).toMatchObject({
+      lyricEffect: 'expressive',
+      lyricIntensity: 0.83,
+      lyricTransition: 'snappy',
+      lyricFont: 'fraunces',
+      lyricWeight: 800,
+      lyricAlign: 'center',
+      lyricSpacing: 'airy',
+      lyricColor: 'album'
+    })
+    const bad = sanitizeSettings({
+      version: 2,
+      lyricEffect: 'karaoke',
+      lyricIntensity: 7,
+      lyricTransition: 'warp',
+      lyricFont: 'Comic Sans',
+      lyricWeight: 900,
+      lyricAlign: 'right',
+      lyricSpacing: 0,
+      lyricColor: '#ff00ff',
+      lyricScale: 1.15
+    })
+    expect(bad).toMatchObject({
+      lyricEffect: 'fill',
+      lyricIntensity: 1,
+      lyricTransition: 'balanced',
+      lyricFont: 'inter',
+      lyricWeight: 700,
+      lyricAlign: 'left',
+      lyricSpacing: 'normal',
+      lyricColor: 'white',
+      lyricScale: 1.15
+    })
+    expect(sanitizeSettings({ version: 2, lyricIntensity: Number.NaN }).lyricIntensity).toBe(0.6)
+  })
+
+  it('persists lyric settings', () => {
+    const file = tempFile()
+    new SettingsStore(file).update({ lyricEffect: 'glow', lyricFont: 'manrope', lyricIntensity: 0.4 })
+    expect(new SettingsStore(file).get()).toMatchObject({ lyricEffect: 'glow', lyricFont: 'manrope', lyricIntensity: 0.4 })
   })
 })

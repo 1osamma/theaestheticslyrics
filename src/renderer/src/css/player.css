@@ -1,5 +1,9 @@
 /* ---------- LUMINA full-screen player (design tokens: tokens.css) ---------- */
 
+/* Lyric typefaces bundled with the app (SIL OFL 1.1; see THIRD_PARTY_NOTICES.md). */
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/fraunces';
+
 body[data-mode='lock'].lm-cursor {
   cursor: default;
 }
@@ -21,7 +25,6 @@ body[data-snapshot] *::after {
   font-weight: 500;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
-  --lm-lift: -0.03em;
   --lm-glow: 0.26em;
   --lm-sung: var(--lm-text-1);
   --lm-unsung: rgba(255, 255, 255, 0.44);
@@ -368,57 +371,69 @@ body[data-snapshot] *::after {
 
 .lm-line {
   position: relative;
-  padding: 0.22em 0;
+  padding: var(--lm-lyric-gap, 0.22em) 0;
   max-width: 19em;
+  font-family: var(--lm-lyric-font, var(--lm-font));
   font-size: calc(var(--lm-fs-lyric) * var(--lm-lyric-scale));
-  font-weight: 700;
-  line-height: 1.2;
+  font-weight: var(--lm-lyric-weight, 700);
+  line-height: var(--lm-lyric-leading, 1.2);
   letter-spacing: var(--lm-tracking-tight);
   color: var(--lm-sung);
   transform-origin: 0 50%;
+  /* Lines fade and recede over the chosen transition speed, cascading outward (transition-delay is set per line). */
   transition:
-    opacity var(--lm-dur-slow) var(--lm-ease-out),
-    transform var(--lm-dur-slow) var(--lm-ease-out);
+    opacity var(--lm-line-ms, 600ms) var(--lm-ease-out),
+    transform var(--lm-line-ms, 600ms) var(--lm-ease-out);
   overflow-wrap: break-word;
   /* Two-line lyrics break evenly instead of leaving one word on its own line. */
   text-wrap: balance;
 }
 
-/* Sung words are white, upcoming ones dimmed. Colours change once per word, never per frame. */
+.lm-lyrics[data-align='center'] .lm-line {
+  margin: 0 auto;
+  text-align: center;
+  transform-origin: 50% 50%;
+}
+
+.lm-lyrics[data-align='center'] .lm-interlude {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Album colour: text tinted toward the cover's accent instead of plain white. */
+.lm-lyrics[data-color='album'] {
+  --lm-sung: color-mix(in srgb, var(--lm-accent) 22%, white);
+  --lm-unsung: color-mix(in srgb, var(--lm-accent) 50%, rgba(255, 255, 255, 0.32));
+}
+
 .lm-word {
   display: inline-block;
-  color: var(--lm-sung);
 }
 
-.lm-word.is-ahead {
-  color: var(--lm-unsung);
-}
-
-/* The word being sung is drawn by the overlay below; its own glyphs keep the layout. */
+/* In the active line every word is drawn by its overlay; its own glyphs keep the layout. */
 .lm-word.is-held {
   visibility: hidden;
 }
 
 /*
- * The sweep: a dimmed copy, a pre-rasterised glow, and a white copy inside a clip window with a
- * feathered right edge. Script moves the window and counter-moves its text each frame (transforms
- * only), so the compositor sweeps the word without repainting text or re-running a filter.
+ * A word of the active line: a dimmed copy, a weak underglow, and a white copy with the strong glow
+ * inside a clip window with a feathered right edge. Compositor animations (lyric-timeline.ts) slide
+ * the window and counter-slide its text, lift and scale the word, and fade the glow, all scheduled
+ * in song time, so no frame repaints text or re-runs a filter.
  */
 .lm-fill {
   position: absolute;
   left: 0;
   top: 0;
+  /* Centred lyrics must not centre the sung copy inside its wider clip window. */
+  text-align: left;
   white-space: nowrap;
   pointer-events: none;
 }
 
 .lm-fill-lift {
   position: relative;
-  transition: transform var(--lm-dur-base) var(--lm-ease-out);
-}
-
-.lm-fill.is-on .lm-fill-lift {
-  transform: translateY(var(--lm-lift));
+  transform-origin: 50% 80%;
 }
 
 .lm-fill-base {
@@ -431,22 +446,9 @@ body[data-snapshot] *::after {
   left: 0;
   top: 0;
   color: transparent;
-  /* Under the dimmed letters the glow is as weak as the letters themselves (the old drop-shadow did this). */
+  /* Under the dimmed letters the glow is as weak as the letters themselves. */
   text-shadow: 0 0 var(--lm-glow) color-mix(in srgb, var(--lm-accent) 37%, transparent);
   opacity: 0;
-  transition: opacity var(--lm-dur-slow) var(--lm-ease-out);
-}
-
-.lm-fill.is-on .lm-fill-glow {
-  opacity: 1;
-}
-
-.lm-player[data-glow='off'] .lm-fill-glow {
-  display: none;
-}
-
-.lm-player[data-glow='off'] .lm-fill-sung {
-  text-shadow: none;
 }
 
 /* 0.5em of room on each side keeps the sung glow from being cut off by the window. */
@@ -457,28 +459,37 @@ body[data-snapshot] *::after {
   width: calc(100% + 0.95em);
   height: calc(100% + 1em);
   overflow: hidden;
-  will-change: transform;
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 0.45em), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 0.45em), transparent);
+}
+
+/* Fade and Minimal keep the window open; the feather would only dim the end of the word. */
+.lm-fill.no-sweep .lm-fill-clip {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .lm-fill-sung {
   display: inline-block;
   padding: 0.5em 0 0 0.5em;
   color: var(--lm-sung);
-  text-shadow: 0 0 var(--lm-glow) color-mix(in srgb, var(--lm-accent) 85%, transparent);
-  will-change: transform;
+  text-shadow: 0 0 var(--lm-glow) color-mix(in srgb, var(--lm-accent) var(--lm-glow-mix, 70%), transparent);
+}
+
+.lm-lyrics[data-glow='off'] .lm-fill-glow {
+  display: none;
+}
+
+.lm-lyrics[data-glow='off'] .lm-fill-sung {
+  text-shadow: none;
 }
 
 .lm-unit {
   white-space: nowrap;
 }
 
-.lm-gap {
-  color: var(--lm-unsung);
-}
-
-.lm-gap.is-sung {
+/* Punctuation in the active line brightens with the word before it (an opacity animation). */
+.lm-gap.is-live {
   color: var(--lm-sung);
 }
 
@@ -594,8 +605,7 @@ body[data-snapshot] *::after {
 
 /* ---------- Reduced motion ---------- */
 
-.lm-player[data-motion='reduced'] .lm-line,
-.lm-player[data-motion='reduced'] .lm-fill-lift {
+.lm-player[data-motion='reduced'] .lm-line {
   transition: opacity var(--lm-dur-fast) linear;
 }
 

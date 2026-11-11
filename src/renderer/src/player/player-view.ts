@@ -1,6 +1,7 @@
 import type { AudioAnalysisFrame } from '@shared/audio-frame'
 import type { AmbientPalette, LightFrame, LightingConfig } from '@shared/lighting'
 import { LightingEngine } from '@shared/lighting-engine'
+import { DEFAULT_LYRICS } from '@shared/lyrics-style'
 import type { Artwork, LyricsStatus, PlayerConfig, TimedLyrics, TrackInfo } from '@shared/types'
 import { copyLight, sameLight } from '../lighting/frame-utils'
 import { createLightLayer } from '../lighting/light-layer'
@@ -25,12 +26,6 @@ const STATUS_TEXT: Partial<Record<LyricsStatus, string>> = {
   error: 'Lyrics are unavailable right now'
 }
 
-/** Per animation setting: how far the sung word lifts and how wide its glow is. */
-const EMPHASIS = {
-  low: { lift: '0em', glow: '0em' },
-  medium: { lift: '-0.03em', glow: '0.26em' },
-  high: { lift: '-0.05em', glow: '0.4em' }
-} as const
 
 const clockFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 
@@ -214,14 +209,11 @@ export function createPlayerView(): PlayerView {
   function applyMotion(): void {
     root.dataset.motion = reducedMotion ? 'reduced' : 'full'
     root.dataset.lite = config && !config.gpu ? 'true' : 'false'
-    const emphasis = EMPHASIS[config?.animation ?? 'medium']
-    root.style.setProperty('--lm-lift', reducedMotion ? '0em' : emphasis.lift)
-    const glow = reducedMotion || (config && !config.gpu) ? '0em' : emphasis.glow
-    root.style.setProperty('--lm-glow', glow)
-    root.dataset.glow = glow === '0em' ? 'off' : 'on'
+    // Lyric glow and typography are set by the lyric lines themselves (lyric-lines.ts).
     lines.setOptions({
-      animation: config?.animation ?? 'medium',
+      lyrics: config?.lyrics ?? DEFAULT_LYRICS,
       reducedMotion,
+      lite: config ? !config.gpu : false,
       scale: config?.lyricScale ?? 1
     })
   }
@@ -434,7 +426,7 @@ export function createPlayerView(): PlayerView {
     },
 
     async ready() {
-      await artPending
+      await Promise.all([artPending, lines.ready()])
     },
 
     destroy() {

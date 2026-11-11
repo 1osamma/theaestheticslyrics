@@ -2,8 +2,9 @@ import { existsSync } from 'node:fs'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { app, globalShortcut, nativeImage, screen, shell, type NativeImage } from 'electron'
 import type { AudioAnalysisFrame, AudioStatus } from '@shared/audio-frame'
-import type { ColorsState, EdgeState, LightingPanelState } from '@shared/ipc'
+import type { ColorsState, EdgeState, LightingPanelState, PanelSettings } from '@shared/ipc'
 import { usesAudio, type AmbientPalette, type LightingConfig, type LightingSettings } from '@shared/lighting'
+import { lyricsConfigOf } from '@shared/lyrics-style'
 import { DEFAULT_COLORS } from '@shared/palette-defaults'
 import type { LyricsStatus, Palette, PlaybackAnchor, PlayerConfig, TimedLyrics, TrackInfo } from '@shared/types'
 import { AudioService } from './audio/audio-service'
@@ -401,7 +402,7 @@ export class AppController {
     this.audio.setWanted(audible && (player || edge))
   }
 
-  private updateLighting(patch: Partial<LightingSettings>): void {
+  private updateLighting(patch: Partial<PanelSettings>): void {
     // Turning edge lighting on by hand overrides "not started with Windows".
     if (patch.edgeLighting) this.edgeSuppressed = false
     this.settings.update(patch)
@@ -420,7 +421,7 @@ export class AppController {
     const picked = {} as Record<string, unknown>
     for (const key of Object.keys(s) as (keyof Settings)[]) picked[key] = s[key]
     return {
-      settings: picked as unknown as LightingSettings,
+      settings: picked as unknown as PanelSettings,
       displays: this.displayChoices(),
       audio: this.audio.status,
       edgeShowing: this.edge.showingCount,
@@ -496,7 +497,7 @@ export class AppController {
   private playerConfig(): PlayerConfig {
     const s = this.settings.get()
     return {
-      animation: s.animation,
+      lyrics: lyricsConfigOf(s),
       reducedMotion: s.reducedMotion,
       lyricScale: s.lyricScale,
       gpu: this.gpu
@@ -582,7 +583,7 @@ export class AppController {
       setPlayer: (patch: Partial<PlayerSettings>) => this.settings.update(patch),
       setLighting: (patch) => this.updateLighting(patch),
       setLightingPaused: (paused) => this.setLightingPaused(paused),
-      openLightingSettings: () => this.lightingWin.open(),
+      openLightingSettings: (tab) => this.lightingWin.open(tab ?? 'lighting'),
       quit: () => app.quit()
     }
   }
@@ -610,9 +611,17 @@ export class AppController {
     }
     if (d.lightingCaptureFile) {
       const file = d.lightingCaptureFile
-      this.later(1000, () => this.lightingWin.open())
+      // The Lyrics tab first (saved as given), then the Lighting tab (saved as …-lighting.png).
+      const lightingFile = file.replace(/(\.png)?$/i, '-lighting.png')
+      this.later(1000, () => this.lightingWin.open('lyrics'))
       this.later(3000, () => {
-        void this.lightingWin.capture(file).then((ok) => this.log(ok ? `capture: saved ${file}` : 'capture: lighting window not visible'))
+        void this.lightingWin.capture(file).then((ok) => this.log(ok ? `capture: saved ${file}` : 'capture: settings window not visible'))
+      })
+      this.later(3300, () => this.lightingWin.open('lighting'))
+      this.later(4300, () => {
+        void this.lightingWin
+          .capture(lightingFile)
+          .then((ok) => this.log(ok ? `capture: saved ${lightingFile}` : 'capture: settings window not visible'))
       })
     }
     if (d.captureSeries) {
