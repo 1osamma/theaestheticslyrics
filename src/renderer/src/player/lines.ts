@@ -95,6 +95,18 @@ export function lyricFocus(model: LyricsModel, t: number): LyricFocus {
   return { line, interlude, interludeProgress }
 }
 
+/**
+ * The line still being sung at `t` after the view has moved on to `focusLine` (the scroll leads
+ * the music, so the next line takes focus a little before the current one's last word ends).
+ * Its words must keep animating, and the line stay lit, until that word ends. -1 when none.
+ */
+export function stillSinging(model: LyricsModel, t: number, focusLine: number): number {
+  const sung = activeLineIndex(model, t)
+  if (sung < 0 || sung === focusLine) return -1
+  const last = model.lines[sung]!.words.at(-1)
+  return last && last.end > t ? sung : -1
+}
+
 /** How far through a word the singing is, 0–1. */
 export function wordFill(word: Pick<TimedWord, 'start' | 'end'>, t: number): number {
   if (t <= word.start) return 0

@@ -165,9 +165,53 @@ window and quit cleanly. **Not run:** the installer itself (it creates shortcuts
 entry), the overlay and edge lighting in the packaged build, and "Start with Windows" from the
 portable EXE.
 
+## Phase 4: lyrics synchronization and reliability (2026-11-11)
+
+**Roadmap (agreed with the user):** Phase 4 sync and reliability (this). Next, **Phase 5 (needs
+approval):** a resizable windowed full lyrics player, a transparent movable text-only lyrics
+window, and consistent lyric styles across fullscreen and both windowed modes. Later: adaptive
+album/wallpaper lyric colours, Windows integration, final release. **Desktop edge lighting is
+dropped:** don't develop it further. Keep the fullscreen album-colour atmosphere.
+
+Investigated, measured, and sorted into source problems and app bugs:
+
+| Area | Finding | Kind |
+|---|---|---|
+| Spotify position (Windows media session) | Published about every 4.5 s; each sample agrees with the previous one to ±7–16 ms. Interpolating from its `updated` stamp is accurate. | OK |
+| Pause | Paused position correct, but stamped ~600 ms after it took effect: the clock overshoots, then snaps back while paused. | Spotify quirk, cosmetic |
+| Seek | First reports the target position at the seek moment, then ~121 ms back once audio resumes; the clock glides corrections under 250 ms. | Spotify quirk, handled |
+| **Line handover (fullscreen)** | The next line takes focus `leadMs` (140–260 ms) early, and the outgoing line's animations were torn down at that moment, so its last word snapped to "sung" early. Measured on 11 cached real songs: 14–50 lines per song, median 170–200 ms early. | **App bug, fixed** |
+| NetEase vs LRCLIB line starts | Per-song median offset from −380 to +510 ms, spread up to 510 ms; some songs agree within 20–30 ms. The app can't tell which source is right. | **Source data** |
+| Fast words | Up to 24% of words are under 120 ms (Touch); timestamps are kept exactly. | Source (fine) |
+| Text-only styles (Ship, Fisheye, Visual) | Words pop at their own start; the loop wakes before each word; entrances shorten for fast words. No bug found. | OK |
+| Parsers | NetEase word stamps are absolute, LRC `[offset:]` is applied, estimated lines are capped before instrumentals. | OK |
+
+Fix (`src/renderer/src/player/lines.ts` `stillSinging`, `lyric-lines.ts`): the outgoing line
+keeps animating, and stays lit and full size, until its last word ends, while the scroll still
+leads. Then it fades and its glow releases. Seeks drop it.
+
+Tests: `tests/sync-regression.test.ts` (13). It covers the recorded Spotify timelines (steady
+playback, pause, resume, seek with buffering correction, track change), line handover (contiguous,
+slow, seek), fast words through the timing builder and every effect, and text-only word picking.
+335 tests pass, typecheck is clean, the build succeeds.
+
+Live (real Spotify, "Creep", NetEase word timing): all six effects switched every 3 s mid-song
+(`--cycle-effects`), with a pause, a resume and two seeks driven through Windows media controls
+(`spotify-ctl.ps1` in the session scratchpad: TryPause/TryPlay/TryChangePlaybackPosition). Drift
+p50 0.3 ms, max 14.6 ms; re-pins: 13 line, 2 play-state, 8 clock (seeks and Spotify corrections);
+no long tasks or errors; screenshots correct after the seek.
+
+**Remaining (source data):** a song whose lyric source is offset is still offset; the global
+timing offset (tray) is the only correction today. Possible next step: a per-song offset nudge
+(e.g. hotkeys ±100 ms, remembered per track), or preferring the source that agrees with the other.
+Not covered: Bluetooth output latency (use the timing offset), Apple Music timelines, and a
+packaged-build rerun of these checks.
+
 ## Exact next steps
 
-1. **The user's priority now: the visual quality, creativity and customisation of the lyric
+0. **Phase 4 is done** (sync fix and tests above). Ask the user before starting Phase 5 (windowed
+   player, transparent text-only window, consistent styles). The effect ideas below are for later.
+1. **Earlier priority, now after Phase 5: the visual quality, creativity and customisation of the lyric
    text effects** (not lighting, not benchmark numbers). Proposed at session end, and **awaiting
    the user's choice**:
    - New effects: Letter Cascade (letters light and lift one by one within the sung word),
@@ -211,11 +255,11 @@ npm run snapshot
 
 ## Continuation prompt
 
-> Continue LUMINA on branch `lumina/lyrics` in `C:\Users\osama\Desktop\lumina` (my fork
-> `1osamma/theaestheticslyrics`). Read `docs/lumina/LYRICS_HANDOFF.md` first. Lyrics and text
-> effects are the priority, not lighting or benchmarks (performance is accepted as smooth). The
-> effect ideas proposed last session are listed under "Exact next steps"; I'll tell you which to
-> build (or build the recommended first batch if I say so). Keep the six existing effects, sync
-> and Phase 1/2 features intact. Ask me before starting the desktop-overlay version. Run
-> typecheck, tests and the build, commit locally, and don't push, merge or open a PR without
-> asking me.
+> Continue LUMINA in `C:\Users\osama\Desktop\lumina` (branch `lumina/lyrics`, my fork
+> `1osamma/theaestheticslyrics`). Verify the branch, latest commit and a clean tree, then read
+> `docs/lumina/LYRICS_HANDOFF.md` and `docs/lumina/architecture.md`. Phase 4 (lyrics sync and
+> reliability) is complete. Don't develop desktop edge lighting; keep the fullscreen album-colour
+> atmosphere and the current lyric styles. Next milestone, **only after I approve**: Phase 5:
+> a resizable windowed full lyrics player, a transparent movable text-only lyrics window, and
+> consistent lyric styles across fullscreen and both windowed modes. Run typecheck, tests and the
+> production build; commit locally; don't push, merge or start a new phase without asking me.

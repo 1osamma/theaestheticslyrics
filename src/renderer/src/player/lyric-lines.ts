@@ -2,7 +2,7 @@ import type { LyricRepinReason } from '../lighting/perf'
 import { DEFAULT_LYRICS, type LyricsConfig } from '@shared/lyrics-style'
 import { type LyricsModel } from '../stage/model'
 import { setStyle } from '../stage/style-cache'
-import { groupUnits, lineOpacity, lyricFocus, segmentLine } from './lines'
+import { groupUnits, lineOpacity, lyricFocus, segmentLine, stillSinging } from './lines'
 import { MOTION, cascadeDelay, entrance, springSettled, springStep, sweeps, wordAnimations, type Spring, type WordPart } from './lyric-timeline'
 
 /** The focused line's top sits this far down the lyrics column. */
@@ -129,6 +129,8 @@ export function createLyricLines(stats?: LyricSyncStats) {
   let spring: Spring | null = null
   let lastWall: number | null = null
   let active: ActiveLine | null = null
+  /** The previous line, still animating its last words after the focus moved on. */
+  let retiring: ActiveLine | null = null
   /** Where the song clock was when the animations were last pinned to it. */
   let sync: { song: number; wall: number; playing: boolean } | null = null
   let lastFocus = -2
@@ -228,23 +230,48 @@ export function createLyricLines(stats?: LyricSyncStats) {
     return { root: overlay, parts: { lift, glow, clip, sung } }
   }
 
-  /** Cancels the active line's animations and returns its words to plain text. */
-  function teardown(): void {
-    if (!active) return
-    for (const run of active.runs) for (const a of run.anims) a.cancel()
-    for (const o of active.overlays) o.root.remove()
-    const view = views[active.index]
+  /** Cancels a line's animations and returns its words to plain text. */
+  function dispose(line: ActiveLine): void {
+    for (const run of line.runs) for (const a of run.anims) a.cancel()
+    for (const o of line.overlays) o.root.remove()
+    const view = views[line.index]
     if (view) {
       for (const w of view.words) w.classList.remove('is-held')
       for (const g of view.gaps) g.el.classList.remove('is-live', 'is-done')
     }
-    active = null
+  }
+
+  /** Cancels every animating line. */
+  function teardown(): void {
+    if (active) dispose(active)
+    if (retiring) dispose(retiring)
+    active = retiring = null
     sync = null
   }
 
-  /** Builds overlays and schedules every word of line `index` on the compositor, from song time `t`. */
-  function schedule(index: number, t: number, key: string): void {
-    teardown()
+  /** The active line hands over but keeps animating until its last words are sung. */
+  function retire(): void {
+    if (retiring) dispose(retiring)
+    retiring = active
+    active = null
+  }
+
+  /** When a retiring line is finished (or no longer relevant after a seek). */
+  function retired(line: ActiveLine, t: number): boolean {
+    const first = line.runs[0]
+    const finish = line.runs.reduce((m, r) => Math.max(m, r.finish), Number.NEGATIVE_INFINITY)
+    return t >= finish || (first !== undefined && t < first.start - LOOKAHEAD_MS) || line.index === active?.index
+  }
+
+  const animating = (): ActiveLine[] => [active, retiring].filter((l): l is ActiveLine => l !== null)
+
+  /**
+   * Builds overlays and schedules every word of line `index` on the compositor, from song time `t`.
+   * If the current active line is `keep` (still being sung), it retires instead of stopping.
+   */
+  function schedule(index: number, t: number, key: string, keep: number): void {
+    if (active && keep >= 0 && active.index === keep) retire()
+    else teardown()
     const view = views[index]
     const line = model?.lines[index]
     if (!view || !line) return
@@ -310,8 +337,11 @@ export function createLyricLines(stats?: LyricSyncStats) {
    * before a run starts and cancelled into the static sung state (`is-done`) once it has finished.
    */
   function advance(t: number, wallMs: number, playing: boolean): void {
-    if (!active) return
-    for (const run of active.runs) {
+    for (const line of animating()) advanceLine(line, t, wallMs, playing)
+  }
+
+  function advanceLine(line: ActiveLine, t: number, wallMs: number, playing: boolean): void {
+    for (const run of line.runs) {
       const next = t >= run.finish ? 'done' : t >= run.start - LOOKAHEAD_MS ? 'live' : 'idle'
       if (next === run.state) continue
       for (const a of run.anims) a.cancel()
@@ -321,7 +351,7 @@ export function createLyricLines(stats?: LyricSyncStats) {
       if (run.el.classList.contains('lm-fill')) run.el.classList.toggle('is-live', next === 'live')
       if (next !== 'live') continue
       run.anims = run.make()
-      for (const a of run.anims) lock(a, t, wallMs, playing)
+      for (const a of run.anims) lock(a, line.origin, t, wallMs, playing)
     }
   }
 
@@ -333,28 +363,26 @@ export function createLyricLines(stats?: LyricSyncStats) {
    * long it waited), and it never auto-rewinds an animation that is already past its end.
    * Paused (and in snapshots), it holds at the exact song time.
    */
-  function lock(a: Animation, t: number, wallMs: number, playing: boolean): void {
-    if (!active) return
+  function lock(a: Animation, origin: number, t: number, wallMs: number, playing: boolean): void {
     if (playing) {
-      a.startTime = wallMs - t + active.origin
+      a.startTime = wallMs - t + origin
     } else {
       a.pause()
-      a.currentTime = t - active.origin
+      a.currentTime = t - origin
     }
   }
 
-  function runningAnimation(line: ActiveLine): Animation | undefined {
-    for (const run of line.runs) for (const a of run.anims) if (a.playState === 'running' && !a.pending) return a
+  function runningAnimation(): { a: Animation; origin: number } | undefined {
+    for (const line of animating())
+      for (const run of line.runs) for (const a of run.anims) if (a.playState === 'running' && !a.pending) return { a, origin: line.origin }
     return undefined
   }
 
   /** Pins every live animation to song time `t` (seek, pause, resume, drift). */
   function pin(t: number, wallMs: number, playing: boolean): void {
-    if (!active) return
+    if (!active && !retiring) return
     advance(t, wallMs, playing)
-    for (const run of active.runs) {
-      for (const a of run.anims) lock(a, t, wallMs, playing)
-    }
+    for (const line of animating()) for (const run of line.runs) for (const a of run.anims) lock(a, line.origin, t, wallMs, playing)
     sync = { song: t, wall: wallMs, playing }
   }
 
@@ -435,6 +463,8 @@ export function createLyricLines(stats?: LyricSyncStats) {
       // Lines move a little ahead of the music; words stay locked to their own timestamps.
       const focus = lyricFocus(model, t + (reduced ? 0 : m.leadMs))
       const anchorLine = Math.max(0, focus.line)
+      // The line before the focus may still be singing its last word: it stays lit and animating.
+      const still = reduced ? -1 : stillSinging(model, t, focus.line)
       const dotsHeight = dots?.offsetHeight ?? 0
       const interludeShift = focus.interlude && focus.line >= 0 ? dotsHeight : 0
 
@@ -443,10 +473,11 @@ export function createLyricLines(stats?: LyricSyncStats) {
       lastFocus = focus.line
       views.forEach((view, i) => {
         const distance = focus.line < 0 ? i + 1 : i - focus.line
-        const recede = distance !== 0 && !reduced ? RECEDE_SCALE : 1
+        const lit = i === still
+        const recede = distance !== 0 && !lit && !reduced ? RECEDE_SCALE : 1
         const shift = distance > 0 ? interludeShift : 0
         if (focusChanged) setStyle(view.el, 'transition-delay', `${reduced ? 0 : cascadeDelay(distance, m)}ms`)
-        setStyle(view.el, 'opacity', lineOpacity(distance, focus.interlude).toFixed(3))
+        setStyle(view.el, 'opacity', lineOpacity(lit ? 0 : distance, lit ? false : focus.interlude).toFixed(3))
         setStyle(view.el, 'transform', `translateY(${shift.toFixed(1)}px) scale(${recede})`)
         if (distance === 1 && effect() === 'expressive' && !settle) enter(view)
         if (distance < 0) view.entered = false
@@ -455,19 +486,30 @@ export function createLyricLines(stats?: LyricSyncStats) {
       // Schedule the focused line's words on the compositor (once per line, effect or layout).
       const lineIndex = focus.line >= 0 && !focus.interlude ? focus.line : -1
       const key = `${lineIndex}|${effect()}|${options.lyrics.intensity}|${options.lyrics.transition}|${measuredFor}`
-      if (lineIndex < 0) teardown()
-      else if (!fontsPending && (!active || active.key !== key)) {
-        schedule(lineIndex, t, key)
+      if (lineIndex < 0) {
+        if (active && active.index === still) retire()
+        else if (active) {
+          dispose(active)
+          active = null
+        }
+      } else if (!fontsPending && (!active || active.key !== key)) {
+        schedule(lineIndex, t, key, still)
         pin(t, wallMs, playing && !settle)
         stats?.repin('line')
       }
+      if (retiring && retired(retiring, t)) {
+        dispose(retiring)
+        retiring = null
+      }
+      if (!active && !retiring) sync = null
       // Re-pin on pause, resume, seek or drift between the song clock and the compositor.
-      if (active && sync) {
+      if ((active || retiring) && sync) {
         const expected = sync.playing ? sync.song + (wallMs - sync.wall) : sync.song
         // Also measured, not only assumed: a running animation's own clock against the song clock
         // (a finished one only updates its clock on main-thread frames, so it is not a reference).
-        const live = sync.playing ? runningAnimation(active) : undefined
-        const measured = live && typeof live.currentTime === 'number' && live.startTime !== null ? live.currentTime + active.origin - songAtFrame(t, wallMs) : 0
+        const run = sync.playing ? runningAnimation() : undefined
+        const live = run?.a
+        const measured = run && typeof run.a.currentTime === 'number' && run.a.startTime !== null ? run.a.currentTime + run.origin - songAtFrame(t, wallMs) : 0
         const reason = settle
           ? 'settle'
           : playing !== sync.playing
