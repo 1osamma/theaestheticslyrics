@@ -33,7 +33,8 @@ Keep a reduce-animations option.
 | `ffc38c8` | Word animations created just in time (350 ms ahead) and finished words rested statically (less GPU, same look) |
 | `c48b015` | Font notices, architecture docs, this handoff |
 | `6bb2e5a` | **Sync fix**: word animations locked to the song clock with `startTime` (no late start while pending, no auto-rewind after a pin); measured-drift re-pin; drift counters; trace and effect-cycling debug flags |
-| (this commit) | Performance findings and status in this handoff |
+| `098d9cd` | Performance findings and status in this handoff |
+| (latest, `git log -1`) | Session-end handoff: proposed effect ideas, next steps. Working tree clean. |
 
 ## What was built
 
@@ -151,7 +152,18 @@ before it was measured and is **not** in the code.
 ## Exact next steps
 
 1. **The user's priority now: the visual quality, creativity and customisation of the lyric
-   text effects** (not lighting, not benchmark numbers). Ask what to build first.
+   text effects** (not lighting, not benchmark numbers). Proposed at session end, and **awaiting
+   the user's choice**:
+   - New effects: Letter Cascade (letters light and lift one by one within the sung word),
+     Focus Pull (blurred-copy crossfade into sharp), Neon Outline, Wave, Pop-in.
+   - For all effects: held-note bloom, active-line emphasis and depth, backing vocals in
+     parentheses shown smaller and dimmer, richer interludes, optional 3D line transitions.
+   - Customisation: glow colour, glow size, sweep softness, contrast, active-line size, letter
+     spacing and case, column position, presets (Apple-like, Neon Club, Cinematic Serif, Calm,
+     custom).
+   - Recommended first batch: Letter Cascade, held-note bloom, active-line emphasis, glow colour
+     with sweep softness and contrast controls, and presets. Keep the existing six effects
+     unchanged; use transform and opacity only; update the live preview and snapshots.
 2. When convenient, live-check the remaining effects with seeks, pauses and mid-song effect
    switches (commands below). Fix only visible issues.
 3. Only when the user asks: bring the effects to the always-on overlay (`src/renderer/src/stage/`), with
@@ -185,7 +197,9 @@ npm run snapshot
 
 > Continue LUMINA on branch `lumina/lyrics` in `C:\Users\osama\Desktop\lumina` (my fork
 > `1osamma/theaestheticslyrics`). Read `docs/lumina/LYRICS_HANDOFF.md` first. Lyrics and text
-> effects are the priority, not lighting or benchmarks (performance is accepted as smooth). Next:
-> improve the visual quality, creativity and customisation of the lyric text effects; propose
-> ideas before large changes. Ask me before starting the desktop-overlay version. Run typecheck,
-> tests and the build, commit locally, and don't push, merge or open a PR without asking me.
+> effects are the priority, not lighting or benchmarks (performance is accepted as smooth). The
+> effect ideas proposed last session are listed under "Exact next steps"; I'll tell you which to
+> build (or build the recommended first batch if I say so). Keep the six existing effects, sync
+> and Phase 1/2 features intact. Ask me before starting the desktop-overlay version. Run
+> typecheck, tests and the build, commit locally, and don't push, merge or open a PR without
+> asking me.
